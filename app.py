@@ -3,7 +3,6 @@ Author:     Sai Vignesh Golla
 License:    MIT License
             https://opensource.org/license/mit
 GitHub:     https://github.com/GodsScion/Auto_job_applier_linkedIn
-
 Local "control panel" web app. It lets a non-technical person configure and run
 the tool from a browser instead of editing Python files and using a terminal.
 
@@ -467,7 +466,14 @@ def api_save_config():
         with open(USER_CONFIG_PATH, "w", encoding="utf-8") as file:
             json.dump(current, file, indent=2, ensure_ascii=False)
     except OSError as err:
-        return jsonify({"error": f"Could not save settings: {err}"}), 500
+        return jsonify({
+            "error": (
+                f"Could not save settings: {err}. The folder holding "
+                f"'{USER_CONFIG_PATH}' is not writable. On a hosted/serverless "
+                f"environment set the USER_CONFIG_PATH environment variable to a "
+                f"writable path (e.g. /tmp/user_config.json)."
+            )
+        }), 500
 
     return jsonify(current)
 

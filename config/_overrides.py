@@ -16,11 +16,37 @@ fully working for existing users.
 
 import os
 import json
-
+import tempfile
 # This file lives in <project_root>/config/, so the project root is one level up.
 _CONFIG_DIR = os.path.dirname(os.path.abspath(__file__))
 _ROOT_DIR = os.path.dirname(_CONFIG_DIR)
-USER_CONFIG_PATH = os.path.join(_ROOT_DIR, "user_config.json")
+
+
+def _default_user_config_path() -> str:
+    '''
+    Picks where user_config.json lives.
+
+    Normally this is the project root, which keeps the local "control panel"
+    behaviour unchanged. When the app is hosted on a read-only filesystem
+    (e.g. AWS Lambda's /var/task), the project root cannot be written to, so
+    we fall back to a writable directory. Set the USER_CONFIG_PATH environment
+    variable to point somewhere specific (a mounted volume, /tmp, etc.).
+    '''
+    override = os.environ.get("USER_CONFIG_PATH")
+    if override:
+        return override
+    candidates = [
+        os.path.join(_ROOT_DIR, "user_config.json"),
+        os.path.join(tempfile.gettempdir(), "user_config.json"),
+    ]
+    for path in candidates:
+        parent = os.path.dirname(path) or "."
+        if os.access(parent, os.W_OK):
+            return path
+    # Nothing writable found; return the default so callers surface a clear error.
+    return candidates[0]
+
+USER_CONFIG_PATH = _default_user_config_path()
 
 
 def load_user_config() -> dict:
