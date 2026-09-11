@@ -19,6 +19,27 @@ def client():
     return app.app.test_client()
 
 
+import sys
+from unittest import mock
+
+
+@pytest.fixture(autouse=True)
+def no_blocking_pause(request):
+    '''
+    No test may wait on a real manual question: pause_for_manual_continue BLOCKS until
+    the user answers through the control panel. Tests that exercise the pause itself
+    mark their function with `uses_real_pause` (via the real_pause decorator in
+    test_runaibot_fixes.py) and are left alone.
+    '''
+    bot = sys.modules.get("runAiBot")
+    if bot is not None and not getattr(request.function, "uses_real_pause", False):
+        with mock.patch.object(bot, "pause_for_manual_continue",
+                               lambda label_org, question_type="question": "Continue"):
+            yield
+    else:
+        yield
+
+
 def pytest_terminal_summary(terminalreporter, exitstatus, config):
     tr = terminalreporter
     passed = tr.stats.get("passed", [])

@@ -24,3 +24,8 @@ user_config.json
 .bot_run.pid
 .manual_question.json
 .history
+# Control-panel server runtime logs — regenerated on every run, never commit
+.cp_out.log
+.cp_err.log
+panel_out.txt
+panel_err.txt

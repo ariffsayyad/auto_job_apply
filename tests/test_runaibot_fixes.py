@@ -26,6 +26,13 @@ def bot():
     return runAiBot
 
 
+def real_pause(fn):
+    '''Marks a test that must run the REAL pause_for_manual_continue (which blocks).
+    tests/conftest.py only stubs the pause for tests without this marker.'''
+    fn.uses_real_pause = True
+    return fn
+
+
 class FakeElement:
     '''Stand-in for a WebElement: `children` maps an XPath/class to what it resolves to.'''
 
@@ -180,6 +187,7 @@ def test_stop_before_submit_setting_is_always_defined(bot):
     assert isinstance(bot.stop_before_submit, bool)
 
 
+@real_pause
 def test_ai_cannot_answer_text_question_prompts_manual_continue(bot, monkeypatch):
     alerted = []
     typed = []
@@ -215,3 +223,108 @@ def test_cleanup_banner_and_signature_text_is_removed_from_active_bot_source():
         "Closing the browser...",
     ]:
         assert banned not in source
+
+
+# ------------------------- pause-and-wait for unanswered questions -----------------
+import json
+import time as real_time
+
+
+@real_pause
+def test_pause_blocks_until_the_user_answers_then_resumes(bot, monkeypatch, tmp_path):
+    '''
+    The bot must STOP on an unanswerable question and only move on once the user
+    answers it in the control panel. It used to log the request and keep going.
+    '''
+    monkeypatch.setattr(bot, "interactive_session", False)
+    question_file = tmp_path / "manual_question.json"
+    monkeypatch.setattr(bot, "manual_question_path", str(question_file))
+
+    # The user clicks "Continue" in the control panel one tick later.
+    ticks = [0]
+    def fake_sleep(_seconds):
+        if ticks[0] == 0:
+            question_file.write_text(json.dumps({"status": "answered", "action": "continue"}), encoding="utf-8")
+        ticks[0] += 1
+    monkeypatch.setattr(bot.time, "sleep", fake_sleep)
+
+    bot.unanswered_questions.add("Favorite color")
+    decision = bot.pause_for_manual_continue("Favorite color", "text")
+
+    assert decision == "Continue"
+    # A rescued question must no longer count as blocking the form.
+    assert "Favorite color" not in bot.unanswered_questions
+
+
+@real_pause
+def test_pause_honors_stop_and_skip_decisions(bot, monkeypatch, tmp_path):
+    monkeypatch.setattr(bot, "interactive_session", False)
+    question_file = tmp_path / "manual_question.json"
+    monkeypatch.setattr(bot, "manual_question_path", str(question_file))
+
+    for action, expected in [("stop", "Stop this application"), ("next", "Skip to next application")]:
+        ticks = [0]
+        def fake_sleep(_seconds, action=action, ticks=ticks):
+            if ticks[0] == 0:
+                question_file.write_text(json.dumps({"status": "answered", "action": action}), encoding="utf-8")
+            ticks[0] += 1
+        monkeypatch.setattr(bot.time, "sleep", fake_sleep)
+
+        decision = bot.pause_for_manual_continue("Some question")
+        assert decision == expected
+
+
+def test_text_question_keeps_the_answer_typed_during_the_pause(bot, monkeypatch):
+    '''
+    On Continue the user has already typed the answer into the field. The bot must
+    keep that text, not clear the field and type an empty answer over it.
+    '''
+    typed = []
+    monkeypatch.setattr(bot, "print_lg", lambda *a, **k: None)
+    monkeypatch.setattr(bot, "use_AI", False)
+    monkeypatch.setattr(bot, "aiClient", None, raising=False)
+    monkeypatch.setattr(bot, "interactive_session", False)
+    monkeypatch.setattr(bot, "human_type",
+                        lambda target, text: (typed.append((target, text)),
+                                              setattr(target, "value", str(target.value) + str(text))), raising=False)
+
+    text_input = FakeElement()
+    def fake_pause(label_org, question_type="question"):
+        # Simulates the user typing "Blue" in the LinkedIn window while paused.
+        text_input.value = "Blue"
+        bot.unanswered_questions.discard(label_org)
+        return "Continue"
+    monkeypatch.setattr(bot, "pause_for_manual_continue", fake_pause)
+
+    question = FakeElement(children={
+        ".//input[@type='text']": text_input,
+        ".//label[@for]": FakeElement(text="Favorite color"),
+    })
+    modal = FakeElement(children={".//div[@data-test-form-element]": [question]})
+
+    bot.answer_questions(modal, set(), "Remote")
+
+    # The user's answer survives: typed back into the field after the clear.
+    assert typed == [(text_input, "Blue")]
+    assert text_input.get_attribute("value") == "Blue"
+
+
+
+# ---------------- N: the manual-question decision must not crash apply_to_jobs ------
+def test_manual_question_decision_is_declared_global_in_apply_to_jobs(bot):
+    '''
+    The live run died on EVERY application with:
+      "cannot access local variable 'manual_question_decision'"
+    apply_to_jobs assigns that name (after answer_questions), so it must be declared
+    global there - otherwise Python treats it as local and reading it raises
+    UnboundLocalError before any Next/Review/Submit click can happen.
+    '''
+    source = open(os.path.join(os.path.dirname(__file__), os.pardir, "runAiBot.py"),
+                  encoding="utf-8").read()
+    apply_src = source.split("def apply_to_jobs(")[1]
+
+    assert "manual_question_decision" in apply_src, "the manual-question decision is read in apply_to_jobs"
+    global_line = next(line for line in apply_src.splitlines() if line.strip().startswith("global "))
+    assert "manual_question_decision" in global_line, (
+        "manual_question_decision must be declared global inside apply_to_jobs, "
+        "otherwise it is a local and reading it raises UnboundLocalError")

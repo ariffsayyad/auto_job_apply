@@ -68,7 +68,8 @@ logs_folder_path = "logs/"
 click_gap = 1                       # Enter max allowed secs to wait approximately. (Only Non Negative Integers Eg: 0,1,2,3,....)
 
 # If you want to see Chrome running then set run_in_background as False (May reduce performance). 
-run_in_background = False           # True or False, Note: True or False are case-sensitive ,   If True, this will make pause_at_failed_question, pause_before_submit and run_in_background as False
+run_in_background = False           # KEEP THIS False: True hides Chrome (headless) so you can't see or answer questions.
+                                    # True or False, Note: True or False are case-sensitive ,   If True, this will make pause_at_failed_question, pause_before_submit and run_in_background as False
 
 # If you want to disable extensions then set disable_extensions as True (Better for performance)
 disable_extensions = False          # True or False, Note: True or False are case-sensitive
@@ -78,7 +79,9 @@ disable_extensions = False          # True or False, Note: True or False are cas
 stop_before_submit = False          # True or False, Note: True or False are case-sensitive
 
 # Run in safe mode. Set this true if chrome is taking too long to open or if you have multiple profiles in browser. This will open chrome in guest profile!
-safe_mode = True                    # True or False, Note: True or False are case-sensitive
+safe_mode = False                   # False = opens Chrome with your normal profile, so the window shows up and you
+                                    # stay logged into LinkedIn. True = clean guest profile (slower, and a fresh
+                                    # Chrome window that can look like "nothing opened"). True or False are case-sensitive
 
 # Do you want scrolling to be smooth or instantaneous? (Can reduce performance if True)
 smooth_scroll = False               # True or False, Note: True or False are case-sensitive

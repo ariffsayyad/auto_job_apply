@@ -40,7 +40,7 @@ linkedIn = "https://www.linkedin.com/in/ariff-sayyad-557504229/"       # "https:
 legally_authorized = "Yes"         # "Yes" or "No"
 
 # What is the status of your citizenship? # If left empty as "", tool will not answer the question. However, note that some companies make it compulsory to be answered
-# Valid options are: "U.S. Citizen/Permanent Resident", "Non-citizen allowed to work for any employer", "Non-citizen allowed to work for current employer", "Non-citizen seeking work authorization", "Canadian Citizen/Permanent Resident" or "Other"
+# Valid options are: "U.S. Citizen/Permanent Resident", "Non-citizen allowed to work for any employer", "Non-citizen allowed to work for current employer", "Non-citizen seeking work authorization", "Canadian Citizen/Permanent Resident", "Indian Citizen/Permanent Resident" or "Other"
 us_citizenship = "U.S. Citizen/Permanent Resident"
 
 

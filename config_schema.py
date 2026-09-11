@@ -136,7 +136,7 @@ SCHEMA = [
                options=["Yes", "No"]),
             _f("Profile", "questions", "us_citizenship", "Citizenship status", "select",
                "Your work-authorization / citizenship status for US applications.",
-               options=["U.S. Citizen/Permanent Resident", "Non-citizen allowed to work for any employer", "Non-citizen allowed to work for current employer", "Non-citizen seeking work authorization", "Canadian Citizen/Permanent Resident", "Other"]),
+               options=["U.S. Citizen/Permanent Resident", "Non-citizen allowed to work for any employer", "Non-citizen allowed to work for current employer", "Non-citizen seeking work authorization", "Canadian Citizen/Permanent Resident", "Indian Citizen/Permanent Resident", "Other"]),
             _f("Profile", "questions", "desired_salary", "Desired salary", "number",
                "Your expected salary or CTC as a plain number (no currency symbols or commas), e.g. 100000. Some forms only accept numbers."),
             _f("Profile", "questions", "current_ctc", "Current salary", "number",

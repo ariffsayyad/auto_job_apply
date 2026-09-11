@@ -106,10 +106,17 @@ class UnansweredQuestions(Exception):
 
 def pause_for_manual_continue(label_org: str, question_type: str = "question") -> str:
     '''
-    Display a blocking choice for any question the AI cannot answer automatically.
-    The user can answer the question and continue, stop this application, or skip to the
-    next application. In non-interactive runs this is logged instead of displayed because
-    the bot is not allowed to hang on a GUI dialog.
+    PAUSE AND WAIT for the user whenever the tool cannot answer a question on its own.
+    The bot stops - it never guesses and never submits without the answer.
+
+    - Control-panel runs (the normal case): the question is written to a state file that
+      app.py watches, so an orange "Your answer is needed" box appears in the browser.
+      The user fills the answer in the LinkedIn window themselves, then clicks Continue
+      (or Stop / Next Application). This function blocks until one of those is clicked.
+    - Interactive terminal runs: a pyautogui dialog asks for the same choice instead.
+    - If the user chose Continue, the question is dropped from `unanswered_questions` so
+      the stall guard does not skip a job the user just rescued, and a short sleep gives
+      the browser a moment before the form is re-read.
     '''
     global manual_question_decision
     message = (
@@ -121,28 +128,31 @@ def pause_for_manual_continue(label_org: str, question_type: str = "question") -
         state = {"status": "pending", "question": label_org, "question_type": question_type}
         with open(manual_question_path, "w", encoding="utf-8") as question_file:
             json.dump(state, question_file)
-        if not interactive_session:
-            print_lg(f'[Manual intervention requested] {label_org}: {message}')
-            while True:
-                time.sleep(0.5)
-                try:
-                    with open(manual_question_path, "r", encoding="utf-8") as question_file:
-                        state = json.load(question_file)
-                    if state.get("status") == "answered":
-                        break
-                except (OSError, ValueError):
-                    continue
-            action = state.get("action", "continue")
-            manual_question_decision = {"continue": "Continue", "stop": "Stop this application", "next": "Skip to next application"}.get(action, "Continue")
-            return manual_question_decision
         if interactive_session:
             manual_question_decision = pyautogui.confirm(message, "Help Needed", choices)
             if not manual_question_decision:
                 manual_question_decision = "Continue"
             return manual_question_decision
-        manual_question_decision = "Continue"
-        print_lg(f'[Manual intervention requested] {label_org}: {message}')
-        return "Continue"
+        # Non-interactive (control panel / background) run: park here until the user
+        # answers through the control panel. The bot must not move on without them.
+        print_lg(f'[Paused - your answer is needed] {label_org}: {message}')
+        while True:
+            time.sleep(0.5)
+            try:
+                with open(manual_question_path, "r", encoding="utf-8") as question_file:
+                    state = json.load(question_file)
+            except (OSError, ValueError):
+                continue
+            if state.get("status") == "answered":
+                break
+        action = state.get("action", "continue")
+        manual_question_decision = {"continue": "Continue", "stop": "Stop this application", "next": "Skip to next application"}.get(action, "Continue")
+        print_lg(f'[Resuming] You chose: {manual_question_decision}')
+        if manual_question_decision == "Continue":
+            # The user answered it themselves, so it is no longer blocking the form.
+            unanswered_questions.discard(label_org)
+            time.sleep(1)
+        return manual_question_decision
     except Exception as exc:
         manual_question_decision = "Continue"
         print_lg("Failed to show manual intervention dialog for unanswered question:", exc)
@@ -336,7 +346,7 @@ def apply_filters() -> None:
         wait_span_click(driver, date_posted)
         buffer(recommended_wait)
 
-        multi_sel_noWait(driver, experience_level) 
+        multi_sel_noWait(driver, experience_level)
         multi_sel_noWait(driver, companies, actions)
         if experience_level or companies: buffer(recommended_wait)
 
@@ -345,7 +355,7 @@ def apply_filters() -> None:
         if job_type or on_site: buffer(recommended_wait)
 
         if easy_apply_only: boolean_button_click(driver, actions, "Easy Apply")
-        
+
         multi_sel_noWait(driver, location)
         multi_sel_noWait(driver, industry)
         if location or industry: buffer(recommended_wait)
@@ -360,7 +370,7 @@ def apply_filters() -> None:
 
         wait_span_click(driver, salary)
         buffer(recommended_wait)
-        
+
         multi_sel_noWait(driver, benefits)
         multi_sel_noWait(driver, commitments)
         if benefits or commitments: buffer(recommended_wait)
@@ -429,12 +439,12 @@ def get_job_main_details(job: WebElement, blacklisted_companies: set, rejected_j
     if '(' in work_location and ')' in work_location:
         work_style = work_location[work_location.rfind('(')+1:work_location.rfind(')')]
         work_location = work_location[:work_location.rfind('(')].strip()
-    
+
     # Skip if previously rejected due to blacklist or already applied
     if company in blacklisted_companies:
         print_lg(f'Skipping "{title} | {company}" job (Blacklisted Company). Job ID: {job_id}!')
         skip = True
-    elif job_id in rejected_jobs: 
+    elif job_id in rejected_jobs:
         print_lg(f'Skipping previously rejected "{title} | {company}" job. Job ID: {job_id}!')
         skip = True
     try:
@@ -442,10 +452,10 @@ def get_job_main_details(job: WebElement, blacklisted_companies: set, rejected_j
             skip = True
             print_lg(f'Already applied to "{title} | {company}" job. Job ID: {job_id}!')
     except: pass
-    try: 
+    try:
         if not skip: job_details_button.click()
     except Exception as e:
-        print_lg(f'Failed to click "{title} | {company}" job on details button. Job ID: {job_id}!') 
+        print_lg(f'Failed to click "{title} | {company}" job on details button. Job ID: {job_id}!')
         # print_lg(e)
         discard_job()
         job_details_button.click() # To pass the error outside
@@ -605,7 +615,7 @@ def check_blacklist(rejected_jobs: set, job_id: str, company: str, blacklisted_c
 def extract_years_of_experience(text: str) -> int:
     # Extract all patterns like '10+ years', '5 years', '3-5 years', etc.
     matches = re.findall(re_experience, text)
-    if len(matches) == 0: 
+    if len(matches) == 0:
         print_lg(f'\n{text}\n\nCouldn\'t find experience requirement in About the Job!')
         return 0
     return max([int(match) for match in matches if int(match) <= 12])
@@ -699,7 +709,7 @@ def get_job_description(
             experience_required = "Error in extraction"
             print_lg("Unable to extract years of experience required!", e)
     return jobDescription, experience_required, skip, skipReason, skipMessage
-        
+
 
 
 # Function to upload resume
@@ -718,7 +728,7 @@ def answer_common_questions(label: str, answer: str | None) -> str | None:
 # Function to answer the questions for Easy Apply
 def answer_questions(modal: WebElement, questions_list: set, work_location: str, job_description: str | None = None ) -> set:
     # Get all questions from the page
-     
+
     # The container class churns (it is `fb-dash-form-element` today, paired with a random
     # class). `data-test-form-element` is the attribute that has survived every restyle.
     all_questions = modal.find_elements(By.XPATH, ".//div[@data-test-form-element]")
@@ -800,10 +810,13 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
                         unanswered_questions.add(f'{label_org} [ {options} ]')
                         if pause_for_manual_continue(label_org, "select") != "Continue":
                             return questions_list
+                        # On Continue the user picked the option themselves in the browser;
+                        # the dropdown is left exactly as they set it.
+                        answer = select.first_selected_option.text
             else: answer = prev_answer
             questions_list.add((f'{label_org} [ {options} ]', answer, "select", prev_answer))
             continue
-        
+
         # Check if it's a radio Question
         radio = try_xp(Question, './/fieldset[@data-test-form-builder-radio-button-form-component="true"]', False)
         if radio:
@@ -822,7 +835,7 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
             options = radio.find_elements(By.TAG_NAME, 'input')
             options_labels = []
             option_texts = []       # visible label text only: the "<value>" suffix is a urn
-            
+
             for option in options:
                 id = option.get_attribute("id")
                 option_label = try_xp(radio, f'.//label[@for="{id}"]', False)
@@ -835,11 +848,11 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
                 auth_answer = work_authorization_answer(label)
                 if auth_answer is not None: answer = auth_answer
                 elif label_has(label, 'veteran', 'protected'): answer = veteran_status
-                elif label_has(label, 'disability', 'handicapped'): 
+                elif label_has(label, 'disability', 'handicapped'):
                     answer = disability_status
                 else: answer = answer_common_questions(label,answer)
                 foundOption = try_xp(radio, f".//label[normalize-space()='{answer}']", False) if answer else False
-                if foundOption: 
+                if foundOption:
                     actions.move_to_element(foundOption).click().perform()
                 else:
                     matched = match_answer_to_option(answer, option_texts)
@@ -860,10 +873,10 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
             else: answer = prev_answer
             questions_list.add((label_org+" ]", answer, "radio", prev_answer))
             continue
-        
+
         # Check if it's a text question
         text = try_xp(Question, ".//input[@type='text']", False)
-        if text: 
+        if text:
             label = try_xp(Question, ".//label[@for]", False)
             try: label = label.find_element(By.CLASS_NAME,'visually-hidden')
             except: pass
@@ -906,7 +919,7 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
                     elif label_has(label, 'week', 'weeks', 'weekly'):
                         answer = notice_period_weeks
                     else: answer = notice_period
-                elif label_has(label, 'salary', 'compensation', 'ctc', 'pay'): 
+                elif label_has(label, 'salary', 'compensation', 'ctc', 'pay'):
                     if label_has(label, 'current', 'present'):
                         if label_has(label, 'month', 'months', 'monthly'):
                             answer = current_ctc_monthly
@@ -946,11 +959,15 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
                         # and "How many people did you manage?" were all submitted as the
                         # user's total years of experience - wrong data on a real
                         # application. Report it and let the stall guard skip the job.
-                        print_lg(f'No answer for the text question "{label_org}". Leaving it empty - add it to config/questions.py.')
+                        print_lg(f'No answer for the text question "{label_org}". Pausing for you to answer it - or add it to config/questions.py.')
                         randomly_answered_questions.add((label_org, "text"))
                         unanswered_questions.add(label_org)
                         if pause_for_manual_continue(label_org, "text") != "Continue":
                             return questions_list
+                        # Continue means the user typed the answer into the field while the
+                        # bot was paused. Keep THEIR text; never clear it or type over it.
+                        answer = text.get_attribute("value") or ""
+                        if answer: print_lg(f'Using your answer for "{label_org}".')
                 text.clear()
                 if answer:
                     human_type(text, answer)
@@ -987,6 +1004,9 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
                         unanswered_questions.add(label_org)
                         if pause_for_manual_continue(label_org, "textarea") != "Continue":
                             return questions_list
+                        # Continue means the user wrote the answer while the bot was paused.
+                        answer = text_area.get_attribute("value") or ""
+                        if answer: print_lg(f'Using your answer for "{label_org}".')
             text_area.clear()
             human_type(text_area, answer)
             questions_list.add((label, text_area.get_attribute("value"), "textarea", prev_answer))
@@ -1236,7 +1256,10 @@ def apply_to_jobs(search_terms: list[str]) -> None:
     applied_jobs = get_applied_job_ids()
     rejected_jobs = set()
     blacklisted_companies = set()
-    global current_city, failed_count, skip_count, easy_applied_count, external_jobs_count, tabs_count, pause_before_submit, pause_at_failed_question, useNewResume
+    # `manual_question_decision` MUST be listed here: it is assigned below (after
+    # answer_questions), and without the global declaration Python treats it as a local,
+    # so reading it raised UnboundLocalError on every single application.
+    global current_city, failed_count, skip_count, easy_applied_count, external_jobs_count, tabs_count, pause_before_submit, pause_at_failed_question, useNewResume, manual_question_decision
     current_city = current_city.strip()
 
     if randomize_search_order:  shuffle(search_terms)
