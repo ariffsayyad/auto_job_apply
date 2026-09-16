@@ -613,12 +613,25 @@ def check_blacklist(rejected_jobs: set, job_id: str, company: str, blacklisted_c
 
 # Function to extract years of experience required from About Job
 def extract_years_of_experience(text: str) -> int:
+    '''
+    Largest plausible years-of-experience number found in `text`, or 0 if there is none.
+
+    Only values <= 12 count, so a stray "15+ years" of company history is ignored rather
+    than read as a requirement. The filter can legitimately leave the list EMPTY even when
+    `matches` is non-empty - a posting that only ever says "15+ years" - and `max([])` raises
+    ValueError. Since `get_job_description` calls this inside its own try/except, that escaped
+    as "Unable to extract years of experience required!" and returned "Error in extraction".
+    '''
     # Extract all patterns like '10+ years', '5 years', '3-5 years', etc.
     matches = re.findall(re_experience, text)
     if len(matches) == 0:
         print_lg(f'\n{text}\n\nCouldn\'t find experience requirement in About the Job!')
         return 0
-    return max([int(match) for match in matches if int(match) <= 12])
+    candidates = [int(match) for match in matches if int(match) <= 12]
+    if not candidates:
+        print_lg(f'\n{text}\n\nOnly found experience requirements above 12 years. Ignoring them.')
+        return 0
+    return max(candidates)
 
 
 

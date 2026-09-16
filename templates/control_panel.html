@@ -507,9 +507,9 @@
             var questionBox = el('div', { id: 'manualQuestionBox', style: 'display:none;margin:18px 0;padding:18px;border:2px solid #d97706;border-radius:8px;background:#fff7ed;' });
             questionBox.appendChild(el('h2', { style: 'margin:0 0 8px;color:#9a3412;', text: 'Your answer is needed' }));
             questionBox.appendChild(el('p', { id: 'manualQuestionText', style: 'margin:0 0 14px;color:#431407;' }));
-            questionBox.appendChild(el('p', { class: 'muted-small', text: 'Fill the question in the LinkedIn browser window first, then choose an action.' }));
+            questionBox.appendChild(el('p', { class: 'muted-small', text: 'Answer the question in the LinkedIn browser window, then click "Answer Saved - Continue". The bot resumes in that same window.' }));
             var questionActions = el('div', { class: 'run-actions' });
-            var continueQuestion = el('button', { class: 'btn', type: 'button', text: 'Fill and Continue' });
+            var continueQuestion = el('button', { class: 'btn', type: 'button', text: 'Answer Saved - Continue' });
             var stopQuestion = el('button', { class: 'btn danger', type: 'button', text: 'Stop Application' });
             var nextQuestion = el('button', { class: 'btn secondary', type: 'button', text: 'Next Application' });
             continueQuestion.addEventListener('click', function () { answerManualQuestion('continue'); });
@@ -556,13 +556,69 @@
             }
         }
 
+        // The question currently awaiting an answer, so the notification fires once per
+        // question instead of on every 1.5s poll.
+        var lastNotifiedQuestion = null;
+        // Prepended to the tab title while a question is pending, to pull the user back
+        // even when notifications are denied or the browser window is behind Chrome.
+        var BASE_TITLE = document.title;
+        var titleTimer = null;
+
         function refreshStatus() {
-            fetch('/api/status').then(function (r) { return r.json(); })
+            return fetch('/api/status').then(function (r) { return r.json(); })
                 .then(function (s) {
                     setRunningUI(s.running, s.pid);
                     showManualQuestion(s.manual_question);
                 })
-                .catch(function () {});
+                .catch(function () {
+                    // The panel server is unreachable. Say so instead of leaving stale
+                    // "Running" text on screen, which reads as "the bot is fine".
+                    setServerUnreachable();
+                });
+        }
+
+        function setServerUnreachable() {
+            var text = document.getElementById('statusText');
+            var dot = document.getElementById('statusDot');
+            if (dot) dot.classList.remove('on');
+            if (text) text.textContent = 'Control panel not reachable - is the server window still open?';
+        }
+
+        // Fire ONE system notification per new question, and start flashing the tab
+        // title. Both are best-effort: notifications may be denied or unsupported, and
+        // that must never stop the in-page box from working.
+        function notifyQuestion(question) {
+            var label = (question && question.question) || 'an application question';
+            var kind = (question && question.question_type) || 'question';
+
+            if (typeof Notification !== 'undefined') {
+                if (Notification.permission === 'granted') {
+                    try {
+                        new Notification('Answer needed in LinkedIn', {
+                            body: 'Could not answer the ' + kind + ': ' + label,
+                            tag: 'aja-manual-question',
+                            requireInteraction: true                        });
+                    } catch (err) { /* some browsers block constructor use; box still shows */ }
+                } else if (Notification.permission === 'default') {
+                    // Ask once; the answer applies to future questions too.
+                    Notification.requestPermission();
+                }
+            }
+            startTitleFlash(label);
+        }
+
+        function startTitleFlash(label) {
+            if (titleTimer) return;
+            var on = false;
+            titleTimer = setInterval(function () {
+                on = !on;
+                document.title = on ? '\u26A0 Answer needed - ' + BASE_TITLE : BASE_TITLE;
+            }, 1000);
+        }
+
+        function stopTitleFlash() {
+            if (titleTimer) { clearInterval(titleTimer); titleTimer = null; }
+            document.title = BASE_TITLE;
         }
 
         function showManualQuestion(question) {
@@ -571,10 +627,21 @@
             if (!box || !text) return;
             if (!question) {
                 box.style.display = 'none';
+                lastNotifiedQuestion = null;
+                stopTitleFlash();
                 return;
             }
-            text.textContent = 'The AI could not answer: ' + (question.question || 'an application question') + ' (' + (question.question_type || 'question') + ').';
+            text.textContent = 'The tool could not answer: ' + (question.question || 'an application question') + ' (' + (question.question_type || 'question') + ').';
             box.style.display = 'block';
+
+            // Notify once per distinct question, not once per poll.
+            var key = String(question.question || '') + '|' + String(question.question_type || '');
+            if (key !== lastNotifiedQuestion) {
+                lastNotifiedQuestion = key;
+                notifyQuestion(question);
+            } else {
+                startTitleFlash(question.question);
+            }
         }
 
         function answerManualQuestion(action) {
@@ -582,13 +649,25 @@
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ action: action })
-            }).then(function (r) { return r.json(); })
+            }).then(function (r) {
+                // An error response still carries a JSON {"error": ...} body, so it must be
+                // read rather than treated as an unparseable failure.
+                return r.json().catch(function () { return {}; });
+            })
                 .then(function (result) {
-                    if (result.error) { alert(result.error); return; }
+                    if (result && result.error) { alert(result.error); return; }
                     showManualQuestion(null);
                     refreshStatus();
                 })
-                .catch(function () { alert('Could not send the decision to the bot.'); });
+                .catch(function () {
+                    // Distinguish "the panel server is gone" from "the answer was rejected."
+                    // Blaming the decision when the server is simply down sent the user
+                    // looking for a bug in the wrong place.
+                    alert('Could not reach the control panel server.\n\n'
+                        + 'The server window was probably closed. If it is gone, the bot has '
+                        + 'stopped too - reopen the panel with start.bat, then start the bot again.');
+                    setServerUnreachable();
+                });
         }
 
         function refreshLogs() {
@@ -629,7 +708,12 @@
         }
 
         function pollLoop() {
-            if (activeTab === 'Run') { refreshStatus(); refreshLogs(); }
+            // Status is polled on EVERY tab, not just Run. A pending question must be
+            // surfaced wherever the user happens to be - previously switching away from
+            // Run stopped the poll entirely, so the answer box never appeared and the
+            // bot sat paused with no visible reason.
+            refreshStatus();
+            if (activeTab === 'Run') { refreshLogs(); }
             pollTimer = setTimeout(pollLoop, 1500);
         }
 

@@ -54,6 +54,41 @@ def wait_for_displayed(driver: WebDriver, xpath: str, time: float) -> WebElement
     return WebDriverWait(driver, time).until(lambda d: pick_first_displayed(d.find_elements(By.XPATH, xpath)))
 
 # Click Functions
+def click_when_stable(driver: WebDriver, xpath: str, time: float=5.0, scrollTop: bool=False) -> WebElement | bool:
+    '''
+    Resolve the first *visible* element matching `xpath`, scroll it into view and click it,
+    retrying while the node is stale.
+
+    Why the retry: LinkedIn is a React app that re-renders the filter panel and search
+    results after every click, and each render replaces the live nodes. WebDriverWait hands
+    back a WebElement bound to the old node, so the `click()` that follows a successful wait
+    throws `StaleElementReferenceException` - the click was found, then invalidated before it
+    landed. Re-resolving the element loses nothing (the new node represents the same control)
+    and turns a dropped click into a click that happens a moment later.
+
+    Returns the clicked `WebElement`, or `False` if nothing visible matched within `time`.
+
+    NOTE: bound the retries with an attempt COUNT, not a wall-clock deadline. The public
+    parameter is named `time` (matching the rest of this module), which shadows the `time`
+    module inside the function body - so any `time.monotonic()` call here would blow up with
+    "'int' object has no attribute 'monotonic'".
+    '''
+    attempts = max(int(time * 4), 1) + 1     # ~250ms of delay per second requested
+    for attempt in range(attempts):
+        try:
+            button = wait_for_displayed(driver, xpath, time)
+            if scrollTop:   scroll_to_view(driver, button, True)
+            button.click()
+            buffer(click_gap)
+            return button
+        except StaleElementReferenceException:
+            # The page re-rendered under us. Re-resolve and click the fresh node.
+            if attempt == attempts - 1: raise
+            sleep(0.25)
+        except Exception as e:
+            print_lg(f'Click Failed! Nothing visible matching "{xpath}"', f"({type(e).__name__})")
+            return False
+
 def wait_span_click(driver: WebDriver, text: str, time: float=5.0, click: bool=True, scroll: bool=True, scrollTop: bool=False) -> WebElement | bool:
     '''
     Finds the span element with the given `text`.
@@ -65,12 +100,9 @@ def wait_span_click(driver: WebDriver, text: str, time: float=5.0, click: bool=T
     '''
     if text:
         try:
-            button = wait_for_displayed(driver, text_xpath("span", text), time)
-            if scroll:  scroll_to_view(driver, button, scrollTop)
-            if click:
-                button.click()
-                buffer(click_gap)
-            return button
+            if not click:
+                return wait_for_displayed(driver, text_xpath("span", text), time)
+            return click_when_stable(driver, text_xpath("span", text), time, scrollTop)
         except Exception as e:
             print_lg("Click Failed! Didn't find '"+text+"'", f"({type(e).__name__})")
             return False
@@ -81,15 +113,7 @@ def wait_xp_click(driver: WebDriver | WebElement, xpath: str, time: float=5.0, s
     callers can anchor on an `id` or `aria-label` and scope the search to a modal.
     - Returns the clicked `WebElement`, or `False` if nothing visible matched.
     '''
-    try:
-        button = wait_for_displayed(driver, xpath, time)
-        scroll_to_view(driver, button, scrollTop)
-        button.click()
-        buffer(click_gap)
-        return button
-    except Exception as e:
-        print_lg(f'Click Failed! Nothing visible matching "{xpath}"', f"({type(e).__name__})")
-        return False
+    return click_when_stable(driver, xpath, time, scrollTop)
 
 def multi_sel(driver: WebDriver, texts: list, time: float=5.0) -> None:
     '''
@@ -97,14 +121,9 @@ def multi_sel(driver: WebDriver, texts: list, time: float=5.0) -> None:
     - Will spend a max of `time` seconds in searching for each element.
     '''
     for text in texts:
-        wait_span_click(driver, text, time, False)
-        try:
-            button = wait_for_displayed(driver, text_xpath("span", text), time)
-            scroll_to_view(driver, button)
-            button.click()
-            buffer(click_gap)
-        except Exception as e:
-            print_lg("Click Failed! Didn't find '"+text+"'", f"({type(e).__name__})")
+        # `click_when_stable` re-resolves the node on a stale-element retry, so the panel's
+        # re-render after each click can't drop the next one.
+        click_when_stable(driver, text_xpath("span", text), time)
 
 def multi_sel_noWait(driver: WebDriver, texts: list, actions: ActionChains = None) -> None:
     '''

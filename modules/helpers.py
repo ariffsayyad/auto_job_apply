@@ -35,6 +35,11 @@ from config.settings import logs_folder_path
 #### Common functions ####
 
 #< Directories related
+# Lifespan guards: keep a handle on every timer/recorder object so they are never
+# garbage-collected before they fire. See the bottom of this module.
+_keep_alive: list = []
+
+
 def make_directories(paths: list[str]) -> None:
     '''Create any of the given directories that don't yet exist (a path pointing at a file creates its parent folder).'''
     for raw_path in paths:
@@ -78,9 +83,9 @@ def find_default_profile_directory() -> str | None:
 
     Returns the absolute path as a string, or None if the path is not found.
     '''
-    
+
     home = pathlib.Path.home()
-    
+
     # Windows
     if sys.platform.startswith('win'):
         paths = [
@@ -105,13 +110,50 @@ def find_default_profile_directory() -> str | None:
     # Check each potential path and return the first one that exists
     for path_str in paths:
         if os.path.exists(path_str):
-            return path_str
-            
+            # `--user-data-dir` must point at a PROFILE folder (e.g. "...\User Data\Default"),
+            # not the "User Data" root. Handing Chrome the root makes the whole browser
+            # exit instantly ("Chrome instance exited"), so browse for a real profile
+            # subfolder and fall back to the root only if none is found.
+            profile_subdir = _pick_profile_subdir(path_str)
+            return profile_subdir or path_str
     return None
-#>
+
+def _pick_profile_subdir(user_data_root: str) -> str | None:
+    '''
+    Returns a concrete Chrome profile folder inside `user_data_root` ("Default",
+    "Profile 1", ...), or None when the root does not contain one.
+    '''
+    try:
+        entries = os.listdir(user_data_root)
+    except OSError:
+        return None
+    # Prefer "Default", then the first "Profile N" folder present.
+    if 'Default' in entries and os.path.isdir(os.path.join(user_data_root, 'Default')):
+        return os.path.join(user_data_root, 'Default')
+    for name in sorted(entries):
+        if name.startswith('Profile ') and os.path.isdir(os.path.join(user_data_root, name)):
+            return os.path.join(user_data_root, name)
+    return None
+
+    #< Logging related
+def buffer(speed: int=0) -> None:
+    '''
+    Sleep for a randomised interval, to space out actions so the automation does not
+    hammer LinkedIn at machine speed.
+    * Returns immediately if `speed <= 0`
+    * Waits a random `0.6-1.0s`  when `1 <= speed < 2`
+    * Waits a random `1.0-1.8s`  when `2 <= speed < 3`
+    * Waits a random `1.8-speed` when `3 <= speed`
+    '''
+    if speed <= 0:
+        return
+    if speed < 2:
+        return sleep(randint(6, 10) * 0.1)
+    if speed < 3:
+        return sleep(randint(10, 18) * 0.1)
+    return sleep(randint(18, round(speed) * 10) * 0.1)
 
 
-#< Logging related
 def critical_error_log(possible_reason: str, stack_trace: Exception) -> None:
     '''
     Function to log and print critical errors along with datetime stamp
@@ -149,25 +191,6 @@ def print_lg(*msgs: str | dict, end: str = "\n", pretty: bool = False, flush: bo
         if not from_critical:
             critical_error_log("Log.txt is open or is occupied by another program!", e)
 #>
-
-
-def buffer(speed: int=0) -> None:
-    '''
-    Function to wait within a period of selected random range.
-    * Will not wait if input `speed <= 0`
-    * Will wait within a random range of 
-      - `0.6 to 1.0 secs` if `1 <= speed < 2`
-      - `1.0 to 1.8 secs` if `2 <= speed < 3`
-      - `1.8 to speed secs` if `3 <= speed`
-    '''
-    if speed<=0:
-        return
-    elif speed <= 1 and speed < 2:
-        return sleep(randint(6,10)*0.1)
-    elif speed <= 2 and speed < 3:
-        return sleep(randint(10,18)*0.1)
-    else:
-        return sleep(randint(18,round(speed)*10)*0.1)
 
 
 def human_type(target, text: str) -> None:

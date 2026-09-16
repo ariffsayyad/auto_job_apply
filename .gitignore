@@ -29,3 +29,10 @@ user_config.json
 .cp_err.log
 panel_out.txt
 panel_err.txt
+# Bot run logs / PID files from manual `python runAiBot.py` runs — machine-specific,
+# regenerated on every run, never commit
+bot_live.pid
+bot_live_out.log
+bot_live_err.log
+bot_test_out.log
+bot_test_err.log

@@ -163,18 +163,84 @@ def _bot_command():
     return [sys.executable, os.path.join(ROOT, "runAiBot.py")]
 
 
-def _is_running() -> bool:
-    '''True if the tracked bot subprocess exists and has not exited.'''
-    global _bot_proc
-    if _bot_proc is None:
+def _read_pid_file() -> int | None:
+    '''The PID recorded by the last successful start, or None if there isn't a valid one.'''
+    try:
+        return int(open(PID_PATH, encoding="utf-8").read().strip())
+    except (OSError, ValueError):
+        return None
+
+def _pid_alive(pid: int) -> bool:
+    '''
+    True if `pid` names a live process. Deliberately does not care whether it is OUR bot -
+    the question is only "is something holding this PID", which is what the PID file asserts.
+
+    Windows uses OpenProcess via ctypes rather than shelling out to `tasklist`: it needs no
+    subprocess, no dependency, and no console. Spawning tasklist from a Microsoft Store
+    Python (which this project's .venv is often built on) actually fails with
+    "[WinError 2] The system cannot find the file specified" because of the Store build's
+    execution aliases, so the subprocess flavor of this probe is simply not reliable here.
+    '''
+    if not pid or pid <= 0:
         return False
-    if _bot_proc.poll() is None:
+    try:
+        if os.name == "nt":
+            import ctypes
+            from ctypes import wintypes
+            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+            if not handle:
+                return False
+            try:
+                # ExitCode STILL_ACTIVE (259) means it hasn't exited.
+                code = wintypes.DWORD()
+                if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+                    return True     # openable but unqueryable: treat as alive
+                return code.value == 259
+            finally:
+                kernel32.CloseHandle(handle)
+        os.kill(pid, 0)
         return True
-    # Process has exited; clean up tracking + PID file.
-    _bot_proc = None
+    except OSError:
+        return False
+    except Exception:
+        # If the liveness probe itself fails we cannot prove the process is gone;
+        # assume it is alive rather than risk starting a second bot over it.
+        return True
+
+def _is_running() -> bool:
+    '''
+    True if the bot subprocess is still running.
+
+    Checks the in-memory handle first, then falls back to the PID file on disk, so a bot
+    started by an earlier app.py (or by hand) is still recognized instead of being started
+    a second time over the top of the first.
+    '''
+    global _bot_proc
+    if _bot_proc is not None:
+        if _bot_proc.poll() is None:
+            return True
+        # Process has exited; clean up tracking + PID file.
+        _bot_proc = None
+        _remove_pid_file()
+        return False
+    pid = _read_pid_file()
+    if pid is None:
+        return False
+    if _pid_alive(pid):
+        return True
+    # The PID file is stale - the process it names is gone. Remove it so the Run tab
+    # stops reporting a bot that only exists on disk.
     _remove_pid_file()
     return False
 
+def _current_pid() -> int | None:
+    '''PID of the running bot, from the live handle or the PID file, else None.'''
+    if _bot_proc is not None and _bot_proc.poll() is None:
+        return _bot_proc.pid
+    pid = _read_pid_file()
+    return pid if _pid_alive(pid) else None
 
 def _remove_pid_file():
     try:
@@ -484,23 +550,26 @@ def api_run():
     global _bot_proc
     with _bot_lock:
         if _is_running():
-            return jsonify({"running": True, "pid": _bot_proc.pid,
+            return jsonify({"running": True, "pid": _current_pid(),
                             "message": "The tool is already running."})
+        # The log file is opened here and handed to the child, so the parent no longer
+        # needs its own handle once Popen has duplicated it. Left unclosed it stayed open
+        # for the life of the server, forever holding the write lock on .bot_run.log.
         try:
             _clear_manual_question()
-            # Truncate the log at the start of each run.
-            log_file = open(LOG_PATH, "w", encoding="utf-8")
-            popen_kwargs = {
-                "cwd": ROOT,
-                "stdout": log_file,
-                "stderr": subprocess.STDOUT,
-            }
-            if os.name == "nt":
-                popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
-            else:
-                popen_kwargs["start_new_session"] = True
-            _bot_proc = subprocess.Popen(_bot_command(), **popen_kwargs)
+            with open(LOG_PATH, "w", encoding="utf-8") as log_file:
+                popen_kwargs = {
+                    "cwd": ROOT,
+                    "stdout": log_file,
+                    "stderr": subprocess.STDOUT,
+                }
+                if os.name == "nt":
+                    popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+                else:
+                    popen_kwargs["start_new_session"] = True
+                _bot_proc = subprocess.Popen(_bot_command(), **popen_kwargs)
         except Exception as err:
+            _bot_proc = None
             return jsonify({"running": False, "error": str(err)}), 500
         try:
             with open(PID_PATH, "w", encoding="utf-8") as pid_file:
@@ -528,7 +597,7 @@ def api_status():
     '''Reports whether the bot subprocess is currently running.'''
     with _bot_lock:
         running = _is_running()
-        pid = _bot_proc.pid if (running and _bot_proc is not None) else None
+        pid = _current_pid() if running else None
         question = None
         if os.path.exists(MANUAL_QUESTION_PATH):
             try:

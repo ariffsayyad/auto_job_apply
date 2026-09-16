@@ -91,6 +91,10 @@ keep_screen_awake = True            # True or False, Note: True or False are cas
 
 # Automatically download and manage the matching Chrome driver, so you don't have to install ChromeDriver yourself. If False, you must install a matching ChromeDriver manually (see setup step 5).
 auto_manage_driver = False          # True or False, Note: True or False are case-sensitive
+                                    # True = undetected-chromedriver (UC) stealth patching. UC 3.5.5
+                                    # is abandoned and fails on current Chrome ("chrome not reachable"),
+                                    # so keep this False. False = plain Selenium, which still uses
+                                    # Selenium Manager to resolve the matching ChromeDriver.
 
 # Do you want to get alerts on errors related to AI API connection?
 showAiErrorAlerts = False            # True or False, Note: True or False are case-sensitive
