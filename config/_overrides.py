@@ -1,19 +1,3 @@
-'''
-Author:     Sai Vignesh Golla
-License:    MIT License
-            https://opensource.org/license/mit
-GitHub:     https://github.com/GodsScion/Auto_job_applier_linkedIn
-
-Loads user settings saved by the local control panel (see app.py) from
-`user_config.json` at the project root, and applies them over the Python
-defaults defined in the config/*.py files.
-
-If `user_config.json` does not exist, everything here is a no-op and the tool
-behaves exactly as it always has: configuration comes entirely from the
-config/*.py defaults. This keeps the classic "edit the .py files" workflow
-fully working for existing users.
-'''
-
 import os
 import json
 import tempfile
