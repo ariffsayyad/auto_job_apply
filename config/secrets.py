@@ -1,26 +1,9 @@
-'''
-Author:     Sai Vignesh Golla
-LinkedIn:   https://www.linkedin.com/in/saivigneshgolla/
-
-Copyright (c) 2024-2026 Sai Vignesh Golla
-
-License:    MIT License
-            https://opensource.org/license/mit
-            
-GitHub:     https://github.com/GodsScion/Auto_job_applier_linkedIn
-
-Support me: https://github.com/sponsors/GodsScion
-
-version:    24.12.3.10.30
-'''
-
-
 ###################################################### CONFIGURE YOUR TOOLS HERE ######################################################
 
 
 # Login Credentials for LinkedIn (Optional)
-username = "username@example.com"       # Enter your username in the quotes
-password = "example_password"           # Enter your password in the quotes
+username = "Enter Your User Name"       # Enter your username in the quotes
+password = "Enter Your Password"           # Enter your password in the quotes
 
 
 ## Artificial Intelligence (optional)
@@ -74,7 +57,7 @@ As an independent developer, I pour my heart and soul into creating tools like t
 Your support, whether through donations big or small or simply spreading the word, means the world to me and helps keep this project alive and thriving.
 
 Gratefully yours 🙏🏻,
-Sai Vignesh Golla
+Sayyad Ariff
 '''
 
 # --- Load user settings saved by the local control panel (user_config.json).
