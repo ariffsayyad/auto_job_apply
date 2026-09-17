@@ -1,39 +1,22 @@
-'''
-Author:     Sai Vignesh Golla
-LinkedIn:   https://www.linkedin.com/in/saivigneshgolla/
-
-Copyright (c) 2024-2026 Sai Vignesh Golla
-
-License:    MIT License
-            https://opensource.org/license/mit
-            
-GitHub:     https://github.com/GodsScion/Auto_job_applier_linkedIn
-
-Support me: https://github.com/sponsors/GodsScion
-
-version:    26.01.20.5.08
-'''
-
-
 ###################################################### APPLICATION INPUTS ######################################################
 
 
 # >>>>>>>>>>> Easy Apply Questions & Inputs <<<<<<<<<<<
 
 # Give an relative path of your default resume to be uploaded. If file in not found, will continue using your previously uploaded resume in LinkedIn.
-default_resume_path = "all resumes/default/resume.pdf"      # (In Development)
+default_resume_path = "Select Your Resume PAth"      # (In Development)
 
 # What do you want to answer for questions that ask about years of experience you have, this is different from current_experience? 
-years_of_experience = "5"          # A number in quotes Eg: "0","1","2","3","4", etc.
+years_of_experience = "Enter Your Work Experirnce"          # A number in quotes Eg: "0","1","2","3","4", etc.
 
 # Do you need visa sponsorship now or in future?
 require_visa = "No"               # "Yes" or "No"
 
 # What is the link to your portfolio website, leave it empty as "", if you want to leave this question unanswered
-website = "https://github.com/GodsScion"                        # "www.example.bio" or "" and so on....
+website = "Enter Your GitHub URL Path"                        # "www.example.bio" or "" and so on....
 
 # Please provide the link to your LinkedIn profile.
-linkedIn = "https://www.linkedin.com/in/ariff-sayyad-557504229/"       # "https://www.linkedin.com/in/example" or "" and so on...
+linkedIn = "Enter Your Linkedin URL Path"       # "https://www.linkedin.com/in/example" or "" and so on...
 
 # Do you ALREADY have permission to work in the country you are applying to? (Eg: citizen, permanent resident, or a valid work visa such as H-1B or OPT)
 # This is NOT `require_visa`, which asks whether you need sponsorship. Someone on a valid work visa answers "Yes" to both.
@@ -41,7 +24,7 @@ legally_authorized = "Yes"         # "Yes" or "No"
 
 # What is the status of your citizenship? # If left empty as "", tool will not answer the question. However, note that some companies make it compulsory to be answered
 # Valid options are: "U.S. Citizen/Permanent Resident", "Non-citizen allowed to work for any employer", "Non-citizen allowed to work for current employer", "Non-citizen seeking work authorization", "Canadian Citizen/Permanent Resident", "Indian Citizen/Permanent Resident" or "Other"
-us_citizenship = "U.S. Citizen/Permanent Resident"
+us_citizenship = "   "
 
 
 
@@ -75,7 +58,7 @@ then it will add '.' before last 5 digits and answer. Examples:
 # currency = "INR"                 # "USD", "INR", "EUR", etc.
 
 # What is your notice period in days?
-notice_period = 30                   # Any number >= 0 without quotes. Eg: 0, 7, 15, 30, 45, etc.
+notice_period = 0                   # Any number >= 0 without quotes. Eg: 0, 7, 15, 30, 45, etc.
 '''
 Note: If question has 'month' or 'week' in it (Example: What is your notice period in months), 
 then it will divide by 30 or 7 and answer respectively. Examples:
@@ -88,12 +71,11 @@ then it will divide by 30 or 7 and answer respectively. Examples:
 '''
 
 # Your LinkedIn headline in quotes Eg: "Software Engineer @ Google, Masters in Computer Science", "Recent Grad Student @ MIT, Computer Science"
-linkedin_headline = "Full Stack Developer with Masters in Computer Science and 4+ years of experience" # "Headline" or "" to leave this question unanswered
+linkedin_headline = "Enter Your Linekin Header Line" # "Headline" or "" to leave this question unanswered
 
 # Your summary in quotes, use \n to add line breaks if using single quotes "Summary".You can skip \n if using triple quotes """Summary"""
 linkedin_summary = """
-I'm a Senior Software Engineer at Amazon with Masters in CS and 4+ years of experience in developing and maintaining Full Stack Web applications and cloud solutions. 
-Specialized in React, Node.js, and Python.
+Enter Your LinkedIn Summary
 """
 
 '''
@@ -118,7 +100,7 @@ Note: If left empty as "", the tool will not answer the question. However, note 
 recent_employer = "Not Applicable" # "", "Lala Company", "Google", "Snowflake", "Databricks"
 
 # Example question: "On a scale of 1-10 how much experience do you have building web or mobile applications? 1 being very little or only in school, 10 being that you have built and launched applications to real users"
-confidence_level = "8"             # Any number between "1" to "10" including 1 and 10, put it in quotes ""
+confidence_level = "0"             # Any number between "1" to "10" including 1 and 10, put it in quotes ""
 ##
 
 
@@ -162,7 +144,7 @@ As an independent developer, I pour my heart and soul into creating tools like t
 Your support, whether through donations big or small or simply spreading the word, means the world to me and helps keep this project alive and thriving.
 
 Gratefully yours 🙏🏻,
-Sai Vignesh Golla
+Sayyad Ariff
 '''
 
 # --- Load user settings saved by the local control panel (user_config.json).
