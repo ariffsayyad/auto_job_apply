@@ -1536,10 +1536,13 @@ def apply_to_jobs(search_terms: list[str]) -> None:
                                 if not discard_reason:
                                     follow_company(modal)
                                     if wait_xp_click(modal, submit_button_xpath, 2, scrollTop=True): 
-                                        date_applied = datetime.now()
+                                        # Timestamp the moment the application is actually submitted.
+                                        # Formatted (no microseconds) so the history CSV/UI shows a
+                                        # clean "2026-09-18 15:04:11" instead of a 6-digit fractional tail.
+                                        date_applied = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                                         if not wait_span_click(driver, "Done", 2): actions.send_keys(Keys.ESCAPE).perform()
                                     elif errored != "stuck" and cur_pause_before_submit and "Yes" in pyautogui.confirm("You submitted the application, didn't you 😒?", "Failed to find Submit Application!", ["Yes", "No"]):
-                                        date_applied = datetime.now()
+                                        date_applied = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                                         wait_span_click(driver, "Done", 2)
                                     else:
                                         print_lg("Since, Submit Application failed, discarding the job application...")
