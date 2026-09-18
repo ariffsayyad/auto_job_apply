@@ -1,20 +1,3 @@
-'''
-Author:     Sai Vignesh Golla
-LinkedIn:   https://www.linkedin.com/in/saivigneshgolla/
-
-Copyright (c) 2024-2026 Sai Vignesh Golla
-
-License:    MIT License
-            https://opensource.org/license/mit
-            
-GitHub:     https://github.com/GodsScion/Auto_job_applier_linkedIn
-
-Support me: https://github.com/sponsors/GodsScion
-
-version:    26.01.20.5.08
-'''
-
-
 # Imports
 import os
 import sys
@@ -737,333 +720,369 @@ def answer_common_questions(label: str, answer: str | None) -> str | None:
     auth_answer = work_authorization_answer(label)
     return auth_answer if auth_answer is not None else answer
 
+def resolve_answer_for_label(label: str, answer: str | None, work_location: str, prev_answer: str | None) -> str | None:
+    '''
+    Pick the answer that best matches a question `label` (already lowercased), shared by the
+    `<select>` and radio branches of `answer_questions` so a fix lands in both.
+
+    Order matters. Work authorization first: "Are you currently legally authorized to work in
+    the United States?" contains the whole word "state" and used to receive the state of
+    residence. Then the label-keyword table, then the generic `answer_common_questions`
+    fallback. Returns the chosen answer string, or `None` when nothing matches (the caller
+    must leave the control alone rather than guess).
+    '''
+    auth_answer = work_authorization_answer(label)
+    if auth_answer is not None:
+        return auth_answer
+    if label_has(label, 'veteran', 'protected'):
+        return veteran_status
+    if label_has(label, 'disability', 'handicapped'):
+        return disability_status
+    if label_has(label, 'email', 'phone'):
+        return prev_answer
+    if label_has(label, 'gender', 'sex', 'sexual orientation'):
+        return gender
+    if label_has(label, 'proficiency'):
+        return 'Professional'
+    if label_has(label, 'location', 'city', 'state', 'country'):
+        if label_has(label, 'country'):
+            return country
+        if label_has(label, 'state'):
+            return state
+        if label_has(label, 'city'):
+            return current_city if current_city else work_location
+        return work_location
+    return answer_common_questions(label, answer)
+
+
+# `answer_questions` dispatches to these per-type helpers. Each one owns exactly one question
+# type, returns the `(question, answer, type, prev_answer)` tuple it built, and returns
+# `MANUAL_PAUSE_REQUESTED` when the user chose to stop / skip at a manual-pause prompt - the
+# caller then returns early WITHOUT recording that question.
+MANUAL_PAUSE_REQUESTED = object()
+
+
+def _extract_text_answer(label: str, label_org: str, work_location: str, job_description: str | None):
+    '''
+    Pick the configured answer for a free-text question, or `"` when none fits.
+
+    Returns `(answer, do_actions)`. `do_actions` is set only for a typeahead
+    (city / location / address) field, which needs the follow-up ARROW_DOWN + ENTER.
+    '''
+    answer = ""
+    do_actions = False
+    auth_answer = work_authorization_answer(label)
+    if auth_answer is not None: answer = auth_answer
+    elif label_has(label, 'experience', 'years'):
+        # Only the total. "How many years of Kubernetes experience do you have?"
+        # and "...experience with Python?" ask about ONE skill, and the user's
+        # total is a false answer to those - leave them for config/questions.py.
+        if find_bad_word(label, total_experience_terms) and not find_bad_word(label, skill_qualifier_terms):
+            answer = years_of_experience
+    elif label_has(label, 'phone', 'mobile'): answer = phone_number
+    elif label_has(label, 'street'): answer = street
+    elif label_has(label, 'email'):
+        # "Email address" contains the whole word "address", so without this guard it
+        # falls through below and types the user's CITY into the email box. There is no
+        # email value in config/personals.py, so leave it for LinkedIn's own prefill
+        # rather than guessing. ponytail: add `email` to personals.py to answer it.
+        print_lg(f'No configured answer for the email question "{label_org}". Leaving LinkedIn\'s own value in place.')
+    elif label_has(label, 'city', 'location', 'address'):
+        answer = current_city if current_city else work_location
+        do_actions = True
+    elif label_has(label, 'signature'): answer = full_name # 'signature' in label or 'legal name' in label or 'your name' in label or 'full name' in label: answer = full_name     # What if question is 'name of the city or university you attend, name of referral etc?'
+    elif label_has(label, 'name', 'surname'):
+        if label_has(label, 'full'): answer = full_name
+        elif label_has(label, 'first') and not label_has(label, 'last'): answer = first_name
+        elif label_has(label, 'middle') and not label_has(label, 'last'): answer = middle_name
+        elif label_has(label, 'last', 'surname') and not label_has(label, 'first'): answer = last_name
+        elif label_has(label, 'employer'): answer = recent_employer
+        else: answer = full_name
+    elif label_has(label, 'notice'):
+        if label_has(label, 'month', 'months', 'monthly'):
+            answer = notice_period_months
+        elif label_has(label, 'week', 'weeks', 'weekly'):
+            answer = notice_period_weeks
+        else: answer = notice_period
+    elif label_has(label, 'salary', 'compensation', 'ctc', 'pay'):
+        if label_has(label, 'current', 'present'):
+            if label_has(label, 'month', 'months', 'monthly'):
+                answer = current_ctc_monthly
+            elif label_has(label, 'lakh', 'lakhs'):
+                answer = current_ctc_lakhs
+            else:
+                answer = current_ctc
+        else:
+            if label_has(label, 'month', 'months', 'monthly'):
+                answer = desired_salary_monthly
+            elif label_has(label, 'lakh', 'lakhs'):
+                answer = desired_salary_lakhs
+            else:
+                answer = desired_salary
+    elif label_has(label, 'linkedin'): answer = linkedIn
+    elif label_has(label, 'website', 'blog', 'portfolio', 'link', 'links'): answer = website
+    elif label_has(label, 'scale of 1-10'): answer = confidence_level
+    elif label_has(label, 'headline'): answer = linkedin_headline
+    elif label_has(label, 'hear', 'heard', 'come across') and label_has(label, 'this') and label_has(label, 'job', 'position'): answer = "https://github.com/GodsScion/Auto_job_applier_linkedIn"
+    elif label_has(label, 'state', 'province'): answer = state
+    elif label_has(label, 'zip', 'zipcode', 'postal', 'postcode', 'code'): answer = zipcode
+    elif label_has(label, 'country'): answer = country
+    else: answer = answer_common_questions(label, answer)
+    return answer, do_actions
+
+def answer_select(Question: WebElement, work_location: str):
+    '''Answer a `<select>` question. Returns the tuple, or `MANUAL_PAUSE_REQUESTED` to stop.'''
+    label_org = "Unknown"
+    try:
+        label = Question.find_element(By.TAG_NAME, "label")
+        label_org = label.find_element(By.TAG_NAME, "span").text
+    except: pass
+    # No default answer. `answer = 'Yes'` here meant an unclassified dropdown -
+    # "Do you have an active security clearance?" - was answered Yes and submitted,
+    # the same defect already removed from the radio branch below.
+    answer = None
+    label = label_org.lower()
+    select = Select(Question.find_element(By.XPATH, ".//select"))
+    selected_option = select.first_selected_option.text
+    optionsText = []
+    options = '"List of phone country codes"'
+    if label != "phone country code":
+        optionsText = [option.text for option in select.options]
+        options = "".join([f' "{option}",' for option in optionsText])
+    prev_answer = selected_option
+    if overwrite_previous_answers or selected_option == "Select an option":
+        # Pick a sensible answer for the dropdown from the question label, via the
+        # shared helper that the radio branch also uses. Whole words only, and work
+        # authorization first - see resolve_answer_for_label.
+        answer = resolve_answer_for_label(label, answer, work_location, prev_answer)
+        try:
+            if answer is None: raise NoSuchElementException(label_org)
+            select.select_by_visible_text(answer)
+        except NoSuchElementException:
+            # The exact text isn't an option; map our answer onto the nearest option.
+            matched = match_answer_to_option(answer, optionsText)
+            if matched is not None:
+                select.select_by_visible_text(optionsText[matched])
+                answer = optionsText[matched]
+            else:
+                # Never guess: a random pick gets submitted as a real answer. Leave the
+                # dropdown alone so LinkedIn blocks Next and the failed-question path
+                # (pause_at_failed_question, else a failed application) takes over.
+                print_lg(f'No option matched "{answer or "a configured answer"}" for "{label_org}". Leaving it unanswered instead of guessing.')
+                answer = prev_answer
+                randomly_answered_questions.add((f'{label_org} [ {options} ]', "select"))
+                unanswered_questions.add(f'{label_org} [ {options} ]')
+                if pause_for_manual_continue(label_org, "select") != "Continue":
+                    return MANUAL_PAUSE_REQUESTED
+                # On Continue the user picked the option themselves in the browser;
+                # the dropdown is left exactly as they set it.
+                answer = select.first_selected_option.text
+    else: answer = prev_answer
+    return (f'{label_org} [ {options} ]', answer, "select", prev_answer)
+
+
+def answer_radio(Question: WebElement, work_location: str):
+    '''Answer a radio-button group. Returns the tuple, or `MANUAL_PAUSE_REQUESTED` to stop.'''
+    radio = Question
+    prev_answer = None
+    label = try_xp(radio, './/span[@data-test-form-builder-radio-button-form-component__title]', False)
+    try: label = find_by_class(label, "visually-hidden", 2.0)
+    except: pass
+    label_org = label.text if label else "Unknown"
+    # No default answer. `answer = 'Yes'` here meant an unclassified label - "Do you
+    # have an active security clearance?", "Are you a US citizen?" - was submitted as
+    # a Yes on a real application.
+    answer = None
+    label = label_org.lower()
+
+    label_org += ' [ '
+    options = radio.find_elements(By.TAG_NAME, 'input')
+    options_labels = []
+    option_texts = []       # visible label text only: the "<value>" suffix is a urn
+    for option in options:
+        id = option.get_attribute("id")
+        option_label = try_xp(radio, f'.//label[@for="{id}"]', False)
+        option_texts.append(option_label.text if option_label else "")
+        options_labels.append( f'"{option_label.text if option_label else "Unknown"}"<{option.get_attribute("value")}>' ) # Saving option as "label <value>"
+        if option.is_selected(): prev_answer = options_labels[-1]
+        label_org += f' {options_labels[-1]},'
+
+    if overwrite_previous_answers or prev_answer is None:
+        # Same shared label-to-answer logic the <select> branch uses, so a fix lands
+        # in both. DOM-specific click handling stays below.
+        answer = resolve_answer_for_label(label, answer, work_location, prev_answer)
+        foundOption = try_xp(radio, f".//label[normalize-space()='{answer}']", False) if answer else False
+        if foundOption:
+            actions.move_to_element(foundOption).click().perform()
+        else:
+            matched = match_answer_to_option(answer, option_texts)
+            if matched is None:
+                # Never guess: `options[0]` clicked whatever LinkedIn rendered first
+                # and submitted it as a real answer - the radio twin of the
+                # `select_by_index(randint(...))` that was removed from the dropdown.
+                # Leave the group untouched so the stall guard skips the job.
+                print_lg(f'No option matched "{answer}" for "{label_org} ]". Leaving it unanswered instead of guessing.')
+                answer = prev_answer
+                randomly_answered_questions.add((f'{label_org} ]',"radio"))
+                unanswered_questions.add(f'{label_org} ]')
+                if pause_for_manual_continue(label_org, "radio") != "Continue":
+                    return MANUAL_PAUSE_REQUESTED
+            else:
+                actions.move_to_element(options[matched]).click().perform()
+                answer = options_labels[matched]
+    else: answer = prev_answer
+    return (label_org+" ]", answer, "radio", prev_answer)
+
+
+def answer_text(Question: WebElement, work_location: str, job_description: str | None = None):
+    '''Answer a single-line text input. Returns the tuple, or `MANUAL_PAUSE_REQUESTED` to stop.'''
+    text = Question
+    label = try_xp(Question, ".//label[@for]", False)
+    try: label = label.find_element(By.CLASS_NAME,'visually-hidden')
+    except: pass
+    label_org = label.text if label else "Unknown"
+    label = label_org.lower()
+
+    prev_answer = text.get_attribute("value")
+    if not prev_answer or overwrite_previous_answers:
+        answer, do_actions = _extract_text_answer(label, label_org, work_location, job_description)
+        if answer == "":
+            ai_answer = ""
+            if use_AI and aiClient:
+                try:
+                    ai_answer = answer_question(aiClient, label_org, question_type="text", job_description=job_description, user_information_all=user_information_all)
+                except Exception as e:
+                    print_lg("Failed to get AI answer!", e)
+            if ai_answer and isinstance(ai_answer, str) and ai_answer.strip():
+                answer = ai_answer.strip()
+                print_lg(f'AI answered "{label_org}": "{answer}"')
+            else:
+                # Leave it empty. It used to fall back to `years_of_experience`, so
+                # "How many years of Kubernetes?", "What is your expected salary?"
+                # and "How many people did you manage?" were all submitted as the
+                # user's total years of experience - wrong data on a real
+                # application. Report it and let the stall guard skip the job.
+                print_lg(f'No answer for the text question "{label_org}". Pausing for you to answer it - or add it to config/questions.py.')
+                randomly_answered_questions.add((label_org, "text"))
+                unanswered_questions.add(label_org)
+                if pause_for_manual_continue(label_org, "text") != "Continue":
+                    return MANUAL_PAUSE_REQUESTED
+                # Continue means the user typed the answer into the field while the
+                # bot was paused. Keep THEIR text; never clear it or type over it.
+                answer = text.get_attribute("value") or ""
+                if answer: print_lg(f'Using your answer for "{label_org}".')
+        text.clear()
+        if answer:
+            human_type(text, answer)
+        if do_actions:
+            sleep(2)
+            actions.send_keys(Keys.ARROW_DOWN)
+            actions.send_keys(Keys.ENTER).perform()
+    return (label, text.get_attribute("value"), "text", prev_answer)
+
+
+def answer_textarea(Question: WebElement, job_description: str | None = None):
+    '''Answer a multi-line textarea. Returns the tuple, or `MANUAL_PAUSE_REQUESTED` to stop.'''
+    text_area = Question
+    label = try_xp(Question, ".//label[@for]", False)
+    label_org = label.text if label else "Unknown"
+    label = label_org.lower()
+    answer = ""
+    prev_answer = text_area.get_attribute("value")
+    if not prev_answer or overwrite_previous_answers:
+        if label_has(label, 'summary'): answer = linkedin_summary
+        elif label_has(label, 'cover'): answer = cover_letter
+        if answer == "":
+            ai_answer = ""
+            if use_AI and aiClient:
+                try:
+                    ai_answer = answer_question(aiClient, label_org, question_type="textarea", job_description=job_description, user_information_all=user_information_all)
+                except Exception as e:
+                    print_lg("Failed to get AI answer!", e)
+            if ai_answer and isinstance(ai_answer, str) and ai_answer.strip():
+                answer = ai_answer.strip()
+                print_lg(f'AI answered "{label_org}": "{answer}"')
+            else:
+                randomly_answered_questions.add((label_org, "textarea"))
+                unanswered_questions.add(label_org)
+                if pause_for_manual_continue(label_org, "textarea") != "Continue":
+                    return MANUAL_PAUSE_REQUESTED
+                # Continue means the user wrote the answer while the bot was paused.
+                answer = text_area.get_attribute("value") or ""
+                if answer: print_lg(f'Using your answer for "{label_org}".')
+    text_area.clear()
+    human_type(text_area, answer)
+    return (label, text_area.get_attribute("value"), "textarea", prev_answer)
+
+
+def answer_checkbox(Question: WebElement):
+    '''Answer a checkbox. Returns the tuple, `None` for the follow-company box, or `MANUAL_PAUSE_REQUESTED`.'''
+    checkbox = Question
+    # The "Follow <company>" box is the one benign checkbox on this form, and
+    # `follow_company()` already drives it from `follow_companies`. Ticking it here
+    # too would fight that setting, so leave it to its one owner.
+    if checkbox.get_attribute("id") == "follow-company-checkbox": return None
+    label = try_xp(Question, ".//span[@class='visually-hidden']", False)
+    label_org = label.text if label else "Unknown"
+    label = label_org.lower()
+    answer = try_xp(Question, ".//label[@for]", False)  # Sometimes multiple checkboxes are given for 1 question, Not accounted for that yet
+    answer = answer.text if answer else "Unknown"
+    prev_answer = checkbox.is_selected()
+    checked = prev_answer
+    if not prev_answer:
+        # Never tick a box just because it is there. Every unticked checkbox used to
+        # be clicked, which silently agreed to whatever it said: "I certify I am a
+        # U.S. citizen", "I consent to a background check", "I agree to the terms".
+        # An attestation has no honest default and the rest cannot be classified, so
+        # both are left alone and reported, exactly like the radio branch.
+        term = find_bad_word(f'{label_org} {answer}', attestation_terms)
+        blocked = f'{label_org} ([ ] {answer})'
+        print_lg('Not ticking "{}": it {}. Tick it yourself, it is not something to guess.'.format(
+            blocked, f'is an attestation or consent ("{term}")' if term else 'cannot be classified'))
+        randomly_answered_questions.add((blocked, "checkbox"))
+        unanswered_questions.add(blocked)
+        if pause_for_manual_continue(blocked, "checkbox") != "Continue":
+            return MANUAL_PAUSE_REQUESTED
+    return (f'{label} ([X] {answer})', checked, "checkbox", prev_answer)
 
 # Function to answer the questions for Easy Apply
 def answer_questions(modal: WebElement, questions_list: set, work_location: str, job_description: str | None = None ) -> set:
-    # Get all questions from the page
-
+    '''
+    Read every question in the Easy Apply modal and dispatch each to the matching per-type
+    helper. Iteration and dispatch only - the answering logic lives in the helpers above.
+    '''
     # The container class churns (it is `fb-dash-form-element` today, paired with a random
     # class). `data-test-form-element` is the attribute that has survived every restyle.
     all_questions = modal.find_elements(By.XPATH, ".//div[@data-test-form-element]")
     # Per-pass, not cumulative: the caller compares consecutive passes to spot a stall.
     unanswered_questions.clear()
-    # all_list_questions = modal.find_elements(By.XPATH, ".//div[@data-test-text-entity-list-form-component]")
-    # all_single_line_questions = modal.find_elements(By.XPATH, ".//div[@data-test-single-line-text-form-component]")
-    # all_questions = all_questions + all_list_questions + all_single_line_questions
 
     for Question in all_questions:
-        # Only the typeahead text inputs need the follow-up ARROW_DOWN + ENTER. It used to be
-        # set inside the text branch alone and read from the textarea branch, so any form with
-        # a textarea and no earlier text input died with UnboundLocalError.
-        do_actions = False
-        # Check if it's a select Question
-        select = try_xp(Question, ".//select", False)
-        if select:
-            label_org = "Unknown"
-            try:
-                label = Question.find_element(By.TAG_NAME, "label")
-                label_org = label.find_element(By.TAG_NAME, "span").text
-            except: pass
-            # No default answer. `answer = 'Yes'` here meant an unclassified dropdown -
-            # "Do you have an active security clearance?" - was answered Yes and submitted,
-            # the same defect already removed from the radio branch below.
-            answer = None
-            label = label_org.lower()
-            select = Select(select)
-            selected_option = select.first_selected_option.text
-            optionsText = []
-            options = '"List of phone country codes"'
-            if label != "phone country code":
-                optionsText = [option.text for option in select.options]
-                options = "".join([f' "{option}",' for option in optionsText])
-            prev_answer = selected_option
-            if overwrite_previous_answers or selected_option == "Select an option":
-                # Pick a sensible answer for the dropdown from the question label.
-                # Whole words only, and work authorization first: "Are you currently legally
-                # authorized to work in the United States?" contains "state" and used to be
-                # answered with the state of residence.
-                auth_answer = work_authorization_answer(label)
-                if auth_answer is not None:
-                    answer = auth_answer
-                elif label_has(label, 'email', 'phone'):
-                    answer = prev_answer
-                elif label_has(label, 'gender', 'sex', 'sexual orientation'):
-                    answer = gender
-                elif label_has(label, 'disability'):
-                    answer = disability_status
-                elif label_has(label, 'proficiency'):
-                    answer = 'Professional'
-                elif label_has(label, 'location', 'city', 'state', 'country'):
-                    if label_has(label, 'country'):
-                        answer = country
-                    elif label_has(label, 'state'):
-                        answer = state
-                    elif label_has(label, 'city'):
-                        answer = current_city if current_city else work_location
-                    else:
-                        answer = work_location
-                else:
-                    answer = answer_common_questions(label, answer)
-                try:
-                    if answer is None: raise NoSuchElementException(label_org)
-                    select.select_by_visible_text(answer)
-                except NoSuchElementException:
-                    # The exact text isn't an option; map our answer onto the nearest option.
-                    matched = match_answer_to_option(answer, optionsText)
-                    if matched is not None:
-                        select.select_by_visible_text(optionsText[matched])
-                        answer = optionsText[matched]
-                    else:
-                        # Never guess: a random pick gets submitted as a real answer. Leave the
-                        # dropdown alone so LinkedIn blocks Next and the failed-question path
-                        # (pause_at_failed_question, else a failed application) takes over.
-                        print_lg(f'No option matched "{answer or "a configured answer"}" for "{label_org}". Leaving it unanswered instead of guessing.')
-                        answer = prev_answer
-                        randomly_answered_questions.add((f'{label_org} [ {options} ]', "select"))
-                        unanswered_questions.add(f'{label_org} [ {options} ]')
-                        if pause_for_manual_continue(label_org, "select") != "Continue":
-                            return questions_list
-                        # On Continue the user picked the option themselves in the browser;
-                        # the dropdown is left exactly as they set it.
-                        answer = select.first_selected_option.text
-            else: answer = prev_answer
-            questions_list.add((f'{label_org} [ {options} ]', answer, "select", prev_answer))
-            continue
+        # Order matters - each question is exactly one of these types, and the first
+        # locator that matches decides which helper handles it.
+        dispatch = None
+        if try_xp(Question, ".//select", False):
+            dispatch = lambda: answer_select(Question, work_location)
+        elif try_xp(Question, './/fieldset[@data-test-form-builder-radio-button-form-component="true"]', False):
+            dispatch = lambda: answer_radio(Question, work_location)
+        elif try_xp(Question, ".//input[@type='text']", False):
+            dispatch = lambda: answer_text(Question, work_location, job_description)
+        elif try_xp(Question, ".//textarea", False):
+            dispatch = lambda: answer_textarea(Question, job_description)
+        elif try_xp(Question, ".//input[@type='checkbox']", False):
+            dispatch = lambda: answer_checkbox(Question)
 
-        # Check if it's a radio Question
-        radio = try_xp(Question, './/fieldset[@data-test-form-builder-radio-button-form-component="true"]', False)
-        if radio:
-            prev_answer = None
-            label = try_xp(radio, './/span[@data-test-form-builder-radio-button-form-component__title]', False)
-            try: label = find_by_class(label, "visually-hidden", 2.0)
-            except: pass
-            label_org = label.text if label else "Unknown"
-            # No default answer. `answer = 'Yes'` here meant an unclassified label - "Do you
-            # have an active security clearance?", "Are you a US citizen?" - was submitted as
-            # a Yes on a real application.
-            answer = None
-            label = label_org.lower()
-
-            label_org += ' [ '
-            options = radio.find_elements(By.TAG_NAME, 'input')
-            options_labels = []
-            option_texts = []       # visible label text only: the "<value>" suffix is a urn
-
-            for option in options:
-                id = option.get_attribute("id")
-                option_label = try_xp(radio, f'.//label[@for="{id}"]', False)
-                option_texts.append(option_label.text if option_label else "")
-                options_labels.append( f'"{option_label.text if option_label else "Unknown"}"<{option.get_attribute("value")}>' ) # Saving option as "label <value>"
-                if option.is_selected(): prev_answer = options_labels[-1]
-                label_org += f' {options_labels[-1]},'
-
-            if overwrite_previous_answers or prev_answer is None:
-                auth_answer = work_authorization_answer(label)
-                if auth_answer is not None: answer = auth_answer
-                elif label_has(label, 'veteran', 'protected'): answer = veteran_status
-                elif label_has(label, 'disability', 'handicapped'):
-                    answer = disability_status
-                else: answer = answer_common_questions(label,answer)
-                foundOption = try_xp(radio, f".//label[normalize-space()='{answer}']", False) if answer else False
-                if foundOption:
-                    actions.move_to_element(foundOption).click().perform()
-                else:
-                    matched = match_answer_to_option(answer, option_texts)
-                    if matched is None:
-                        # Never guess: `options[0]` clicked whatever LinkedIn rendered first
-                        # and submitted it as a real answer - the radio twin of the
-                        # `select_by_index(randint(...))` that was removed from the dropdown.
-                        # Leave the group untouched so the stall guard skips the job.
-                        print_lg(f'No option matched "{answer}" for "{label_org} ]". Leaving it unanswered instead of guessing.')
-                        answer = prev_answer
-                        randomly_answered_questions.add((f'{label_org} ]',"radio"))
-                        unanswered_questions.add(f'{label_org} ]')
-                        if pause_for_manual_continue(label_org, "radio") != "Continue":
-                            return questions_list
-                    else:
-                        actions.move_to_element(options[matched]).click().perform()
-                        answer = options_labels[matched]
-            else: answer = prev_answer
-            questions_list.add((label_org+" ]", answer, "radio", prev_answer))
-            continue
-
-        # Check if it's a text question
-        text = try_xp(Question, ".//input[@type='text']", False)
-        if text:
-            label = try_xp(Question, ".//label[@for]", False)
-            try: label = label.find_element(By.CLASS_NAME,'visually-hidden')
-            except: pass
-            label_org = label.text if label else "Unknown"
-            answer = "" # years_of_experience
-            label = label_org.lower()
-
-            prev_answer = text.get_attribute("value")
-            if not prev_answer or overwrite_previous_answers:
-                auth_answer = work_authorization_answer(label)
-                if auth_answer is not None: answer = auth_answer
-                elif label_has(label, 'experience', 'years'):
-                    # Only the total. "How many years of Kubernetes experience do you have?"
-                    # and "...experience with Python?" ask about ONE skill, and the user's
-                    # total is a false answer to those - leave them for config/questions.py.
-                    if find_bad_word(label, total_experience_terms) and not find_bad_word(label, skill_qualifier_terms):
-                        answer = years_of_experience
-                elif label_has(label, 'phone', 'mobile'): answer = phone_number
-                elif label_has(label, 'street'): answer = street
-                elif label_has(label, 'email'):
-                    # "Email address" contains the whole word "address", so without this guard it
-                    # falls through below and types the user's CITY into the email box. There is no
-                    # email value in config/personals.py, so leave it for LinkedIn's own prefill
-                    # rather than guessing. ponytail: add `email` to personals.py to answer it.
-                    print_lg(f'No configured answer for the email question "{label_org}". Leaving LinkedIn\'s own value in place.')
-                elif label_has(label, 'city', 'location', 'address'):
-                    answer = current_city if current_city else work_location
-                    do_actions = True
-                elif label_has(label, 'signature'): answer = full_name # 'signature' in label or 'legal name' in label or 'your name' in label or 'full name' in label: answer = full_name     # What if question is 'name of the city or university you attend, name of referral etc?'
-                elif label_has(label, 'name', 'surname'):
-                    if label_has(label, 'full'): answer = full_name
-                    elif label_has(label, 'first') and not label_has(label, 'last'): answer = first_name
-                    elif label_has(label, 'middle') and not label_has(label, 'last'): answer = middle_name
-                    elif label_has(label, 'last', 'surname') and not label_has(label, 'first'): answer = last_name
-                    elif label_has(label, 'employer'): answer = recent_employer
-                    else: answer = full_name
-                elif label_has(label, 'notice'):
-                    if label_has(label, 'month', 'months', 'monthly'):
-                        answer = notice_period_months
-                    elif label_has(label, 'week', 'weeks', 'weekly'):
-                        answer = notice_period_weeks
-                    else: answer = notice_period
-                elif label_has(label, 'salary', 'compensation', 'ctc', 'pay'):
-                    if label_has(label, 'current', 'present'):
-                        if label_has(label, 'month', 'months', 'monthly'):
-                            answer = current_ctc_monthly
-                        elif label_has(label, 'lakh', 'lakhs'):
-                            answer = current_ctc_lakhs
-                        else:
-                            answer = current_ctc
-                    else:
-                        if label_has(label, 'month', 'months', 'monthly'):
-                            answer = desired_salary_monthly
-                        elif label_has(label, 'lakh', 'lakhs'):
-                            answer = desired_salary_lakhs
-                        else:
-                            answer = desired_salary
-                elif label_has(label, 'linkedin'): answer = linkedIn
-                elif label_has(label, 'website', 'blog', 'portfolio', 'link', 'links'): answer = website
-                elif label_has(label, 'scale of 1-10'): answer = confidence_level
-                elif label_has(label, 'headline'): answer = linkedin_headline
-                elif label_has(label, 'hear', 'heard', 'come across') and label_has(label, 'this') and label_has(label, 'job', 'position'): answer = "https://github.com/GodsScion/Auto_job_applier_linkedIn"
-                elif label_has(label, 'state', 'province'): answer = state
-                elif label_has(label, 'zip', 'zipcode', 'postal', 'postcode', 'code'): answer = zipcode
-                elif label_has(label, 'country'): answer = country
-                else: answer = answer_common_questions(label,answer)
-                if answer == "":
-                    ai_answer = ""
-                    if use_AI and aiClient:
-                        try:
-                            ai_answer = answer_question(aiClient, label_org, question_type="text", job_description=job_description, user_information_all=user_information_all)
-                        except Exception as e:
-                            print_lg("Failed to get AI answer!", e)
-                    if ai_answer and isinstance(ai_answer, str) and ai_answer.strip():
-                        answer = ai_answer.strip()
-                        print_lg(f'AI answered "{label_org}": "{answer}"')
-                    else:
-                        # Leave it empty. It used to fall back to `years_of_experience`, so
-                        # "How many years of Kubernetes?", "What is your expected salary?"
-                        # and "How many people did you manage?" were all submitted as the
-                        # user's total years of experience - wrong data on a real
-                        # application. Report it and let the stall guard skip the job.
-                        print_lg(f'No answer for the text question "{label_org}". Pausing for you to answer it - or add it to config/questions.py.')
-                        randomly_answered_questions.add((label_org, "text"))
-                        unanswered_questions.add(label_org)
-                        if pause_for_manual_continue(label_org, "text") != "Continue":
-                            return questions_list
-                        # Continue means the user typed the answer into the field while the
-                        # bot was paused. Keep THEIR text; never clear it or type over it.
-                        answer = text.get_attribute("value") or ""
-                        if answer: print_lg(f'Using your answer for "{label_org}".')
-                text.clear()
-                if answer:
-                    human_type(text, answer)
-                if do_actions:
-                    sleep(2)
-                    actions.send_keys(Keys.ARROW_DOWN)
-                    actions.send_keys(Keys.ENTER).perform()
-            questions_list.add((label, text.get_attribute("value"), "text", prev_answer))
-            continue
-
-        # Check if it's a textarea question
-        text_area = try_xp(Question, ".//textarea", False)
-        if text_area:
-            label = try_xp(Question, ".//label[@for]", False)
-            label_org = label.text if label else "Unknown"
-            label = label_org.lower()
-            answer = ""
-            prev_answer = text_area.get_attribute("value")
-            if not prev_answer or overwrite_previous_answers:
-                if label_has(label, 'summary'): answer = linkedin_summary
-                elif label_has(label, 'cover'): answer = cover_letter
-                if answer == "":
-                    ai_answer = ""
-                    if use_AI and aiClient:
-                        try:
-                            ai_answer = answer_question(aiClient, label_org, question_type="textarea", job_description=job_description, user_information_all=user_information_all)
-                        except Exception as e:
-                            print_lg("Failed to get AI answer!", e)
-                    if ai_answer and isinstance(ai_answer, str) and ai_answer.strip():
-                        answer = ai_answer.strip()
-                        print_lg(f'AI answered "{label_org}": "{answer}"')
-                    else:
-                        randomly_answered_questions.add((label_org, "textarea"))
-                        unanswered_questions.add(label_org)
-                        if pause_for_manual_continue(label_org, "textarea") != "Continue":
-                            return questions_list
-                        # Continue means the user wrote the answer while the bot was paused.
-                        answer = text_area.get_attribute("value") or ""
-                        if answer: print_lg(f'Using your answer for "{label_org}".')
-            text_area.clear()
-            human_type(text_area, answer)
-            questions_list.add((label, text_area.get_attribute("value"), "textarea", prev_answer))
-            continue
-
-        # Check if it's a checkbox question
-        checkbox = try_xp(Question, ".//input[@type='checkbox']", False)
-        if checkbox:
-            # The "Follow <company>" box is the one benign checkbox on this form, and
-            # `follow_company()` already drives it from `follow_companies`. Ticking it here
-            # too would fight that setting, so leave it to its one owner.
-            if checkbox.get_attribute("id") == "follow-company-checkbox": continue
-            label = try_xp(Question, ".//span[@class='visually-hidden']", False)
-            label_org = label.text if label else "Unknown"
-            label = label_org.lower()
-            answer = try_xp(Question, ".//label[@for]", False)  # Sometimes multiple checkboxes are given for 1 question, Not accounted for that yet
-            answer = answer.text if answer else "Unknown"
-            prev_answer = checkbox.is_selected()
-            checked = prev_answer
-            if not prev_answer:
-                # Never tick a box just because it is there. Every unticked checkbox used to
-                # be clicked, which silently agreed to whatever it said: "I certify I am a
-                # U.S. citizen", "I consent to a background check", "I agree to the terms".
-                # An attestation has no honest default and the rest cannot be classified, so
-                # both are left alone and reported, exactly like the radio branch.
-                term = find_bad_word(f'{label_org} {answer}', attestation_terms)
-                blocked = f'{label_org} ([ ] {answer})'
-                print_lg('Not ticking "{}": it {}. Tick it yourself, it is not something to guess.'.format(
-                    blocked, f'is an attestation or consent ("{term}")' if term else 'cannot be classified'))
-                randomly_answered_questions.add((blocked, "checkbox"))
-                unanswered_questions.add(blocked)
-                if pause_for_manual_continue(blocked, "checkbox") != "Continue":
-                    return questions_list
-            questions_list.add((f'{label} ([X] {answer})', checked, "checkbox", prev_answer))
-            continue
-
+        if dispatch is None: continue
+        result = dispatch()
+        # `None` = a question the helper deliberately ignores (the follow-company box).
+        if result is None: continue
+        # The user chose to stop / skip at a manual-pause prompt: abort this whole pass.
+        if result is MANUAL_PAUSE_REQUESTED: return questions_list
+        questions_list.add(result)
 
     # Select todays date. Scoped to the modal: on `driver` this clicked any date picker
     # anywhere on the page. It does mean to click, so click stays True here.
     try_xp(modal, ".//button[contains(@aria-label, 'This is today')]")
-
-    # Collect important skills
-    # if 'do you have' in label and 'experience' in label and ' in ' in label -> Get word (skill) after ' in ' from label
-    # if 'how many years of experience do you have in ' in label -> Get word (skill) after ' in '
 
     return questions_list
 

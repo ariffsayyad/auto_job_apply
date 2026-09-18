@@ -112,6 +112,12 @@ def wait_xp_click(driver: WebDriver | WebElement, xpath: str, time: float=5.0, s
     Same contract as `wait_span_click`, but takes an `xpath` instead of a span's text, so
     callers can anchor on an `id` or `aria-label` and scope the search to a modal.
     - Returns the clicked `WebElement`, or `False` if nothing visible matched.
+
+    Kept as a distinct name even though it delegates straight to `click_when_stable`: the
+    login, discard, Next/Review and Submit call sites all read as "click this xpath", and
+    `tests/test_question_matching.py` monkeypatches `bot.wait_xp_click` by name to record
+    which locators are clicked. Inlining it into `click_when_stable` would silently unpatch
+    that test seam, so the alias stays.
     '''
     return click_when_stable(driver, xpath, time, scrollTop)
 
@@ -208,7 +214,11 @@ def try_linkText(driver: WebDriver, linkText: str) -> WebElement | bool:
         print_lg(f'Failed to find link "{linkText}"!', e)
         return False
 
-def try_find_by_classes(driver: WebDriver, classes: list[str]) -> WebElement | ValueError:
+def try_find_by_classes(driver: WebDriver, classes: list[str]) -> WebElement:
+    '''Return the first element matching any class in `classes`, else raise `ValueError`.
+
+    The `ValueError` is RAISED, not returned, so it does not belong in the return annotation.
+    '''
     for cla in classes:
         try:    return driver.find_element(By.CLASS_NAME, cla)
         except NoSuchElementException: pass

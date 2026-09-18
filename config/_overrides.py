@@ -1,29 +1,14 @@
-'''
-Author:     Sai Vignesh Golla
-License:    MIT License
-            https://opensource.org/license/mit
-GitHub:     https://github.com/GodsScion/Auto_job_applier_linkedIn
-
-Loads user settings saved by the local control panel (see app.py) from
-`user_config.json` at the project root, and applies them over the Python
-defaults defined in the config/*.py files.
-
-If `user_config.json` does not exist, everything here is a no-op and the tool
-behaves exactly as it always has: configuration comes entirely from the
-config/*.py defaults. This keeps the classic "edit the .py files" workflow
-fully working for existing users.
-'''
-
 import os
 import json
 import tempfile
+
 # This file lives in <project_root>/config/, so the project root is one level up.
 _CONFIG_DIR = os.path.dirname(os.path.abspath(__file__))
 _ROOT_DIR = os.path.dirname(_CONFIG_DIR)
 
 
 def _default_user_config_path() -> str:
-    '''
+    """
     Picks where user_config.json lives.
 
     Normally this is the project root, which keeps the local "control panel"
@@ -31,7 +16,7 @@ def _default_user_config_path() -> str:
     (e.g. AWS Lambda's /var/task), the project root cannot be written to, so
     we fall back to a writable directory. Set the USER_CONFIG_PATH environment
     variable to point somewhere specific (a mounted volume, /tmp, etc.).
-    '''
+    """
     override = os.environ.get("USER_CONFIG_PATH")
     if override:
         return override
@@ -46,14 +31,15 @@ def _default_user_config_path() -> str:
     # Nothing writable found; return the default so callers surface a clear error.
     return candidates[0]
 
+
 USER_CONFIG_PATH = _default_user_config_path()
 
 
 def load_user_config() -> dict:
-    '''
+    """
     Returns the full override dictionary from `user_config.json`, or an empty
     dict if the file is missing, unreadable, or not valid JSON. Never raises.
-    '''
+    """
     try:
         with open(USER_CONFIG_PATH, "r", encoding="utf-8") as file:
             data = json.load(file)
@@ -63,7 +49,7 @@ def load_user_config() -> dict:
 
 
 def apply(module_name: str, module_globals: dict) -> None:
-    '''
+    """
     Overrides a config module's existing globals with values from the matching
     section of `user_config.json`.
 
@@ -71,7 +57,7 @@ def apply(module_name: str, module_globals: dict) -> None:
       dotted part is the section name looked up in the JSON ("settings").
     - Only keys that ALREADY exist as globals in the module are applied, so the
       JSON can never introduce new names into the config namespace.
-    '''
+    """
     section_name = module_name.split(".")[-1]
     section = load_user_config().get(section_name, {})
     if not isinstance(section, dict):

@@ -21,22 +21,26 @@ version:    26.01.20.5.08
 
 __validation_file_path = ""
 
-def check_int(var: int, var_name: str, min_value: int=0) -> bool | TypeError | ValueError:
+def check_int(var: int, var_name: str, min_value: int=0) -> bool:
+    '''Return True if `var` is an int >= `min_value`; raise TypeError/ValueError otherwise.'''
     if not isinstance(var, int): raise TypeError(f'The variable "{var_name}" in "{__validation_file_path}" must be an Integer!\nReceived "{var}" of type "{type(var)}" instead!\n\nSolution:\nPlease open "{__validation_file_path}" and update "{var_name}" to be an Integer.\nExample: `{var_name} = 10`\n\nNOTE: Do NOT surround Integer values in quotes ("10")X !\n\n')
     if var < min_value: raise ValueError(f'The variable "{var_name}" in "{__validation_file_path}" expects an Integer greater than or equal to `{min_value}`! Received `{var}` instead!\n\nSolution:\nPlease open "{__validation_file_path}" and update "{var_name}" accordingly.')
     return True
 
-def check_boolean(var: bool, var_name: str) -> bool | ValueError:
+def check_boolean(var: bool, var_name: str) -> bool:
+    '''Return True if `var` is exactly True/False; raise ValueError otherwise.'''
     if var == True or var == False: return True
     raise ValueError(f'The variable "{var_name}" in "{__validation_file_path}" expects a Boolean input `True` or `False`, not "{var}" of type "{type(var)}" instead!\n\nSolution:\nPlease open "{__validation_file_path}" and update "{var_name}" to either `True` or `False` (case-sensitive, T and F must be CAPITAL/uppercase).\nExample: `{var_name} = True`\n\nNOTE: Do NOT surround Boolean values in quotes ("True")X !\n\n')
 
-def check_string(var: str, var_name: str, options: list=[], min_length: int=0) -> bool | TypeError | ValueError:
+def check_string(var: str, var_name: str, options: list=[], min_length: int=0) -> bool:
+    '''Return True if `var` is a valid string; raise TypeError/ValueError otherwise.'''
     if not isinstance(var, str): raise TypeError(f'Invalid input for {var_name}. Expecting a String!')
     if min_length > 0 and len(var) < min_length: raise ValueError(f'Invalid input for {var_name}. Expecting a String of length at least {min_length}!')
     if len(options) > 0 and var not in options: raise ValueError(f'Invalid input for {var_name}. Expecting a value from {options}, not {var}!')
     return True
 
-def check_list(var: list, var_name: str, options: list=[], min_length: int=0) -> bool | TypeError | ValueError:
+def check_list(var: list, var_name: str, options: list=[], min_length: int=0) -> bool:
+    '''Return True if `var` is a valid list of strings; raise TypeError/ValueError otherwise.'''
     if not isinstance(var, list): 
         raise TypeError(f'Invalid input for {var_name}. Expecting a List!')
     if len(var) < min_length: raise ValueError(f'Invalid input for {var_name}. Expecting a List of length at least {min_length}!')

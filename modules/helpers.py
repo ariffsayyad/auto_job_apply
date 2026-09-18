@@ -18,10 +18,10 @@ version:    26.01.20.5.08
 # Imports
 
 import os
+import re
 import sys
 import json
 import pathlib
-
 from time import sleep
 from random import randint
 from datetime import datetime, timedelta
@@ -180,6 +180,9 @@ def print_lg(*msgs: str | dict, end: str = "\n", pretty: bool = False, flush: bo
     '''
     Function to log and print. **Note that, `end` and `flush` parameters are ignored if `pretty = True`**
     '''
+    # Bound before the loop: if the try fails on its first iteration (or msgs is empty), the
+    # except branch below would otherwise reference `message` before it was ever assigned.
+    message = None
     try:
         for message in msgs:
             pprint(message) if pretty else print(message, end=end, flush=flush)
@@ -238,7 +241,6 @@ def calculate_date_posted(time_string: str) -> datetime | None:
     Returns None when the phrase can't be understood. Months and years are
     approximated as 30 and 365 days respectively.
     '''
-    import re
     match = re.search(r'(\d+)\s+(second|minute|hour|day|week|month|year)s?\s+ago',
                       time_string.strip(), re.IGNORECASE)
     if not match:
@@ -280,12 +282,19 @@ def convert_to_lakhs(value: str) -> str:
 def convert_to_json(data) -> dict:
     '''
     Function to convert data to JSON, if unsuccessful, returns `{"error": "Unable to parse the response as JSON", "data": data}`
+
+    A syntactically valid JSON document is not necessarily an object - `json.loads` can return
+    a list, string, number, bool or None for input like `[1, 2]` or `"ok"`. The declared return
+    type is `dict`, so anything that is not a dict is wrapped in the same error shape instead
+    of being handed back as a non-dict the caller will index into and crash on.
     '''
     try:
         result_json = json.loads(data)
-        return result_json
     except json.JSONDecodeError:
         return {"error": "Unable to parse the response as JSON", "data": data}
+    if not isinstance(result_json, dict):
+        return {"error": "Parsed JSON is not an object", "data": data}
+    return result_json
 
 
 def truncate_for_csv(data, max_length: int = 131000, suffix: str = "...[TRUNCATED]") -> str:

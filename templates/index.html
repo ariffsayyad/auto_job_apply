@@ -112,6 +112,16 @@
             color: var(--ok);
             font-weight: 700;
         }
+        .applied-stamp {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .applied-when {
+            color: var(--muted);
+            font-size: 12.5px;
+            white-space: nowrap;
+        }
         .center { text-align: center; }
         .placeholder-row td {
             white-space: normal;
@@ -159,10 +169,11 @@
                                 </button>
                             </th>
                             <th class="center">Applied</th>
+                            <th>Date &amp; Time Applied</th>
                         </tr>
                     </thead>
                     <tbody id="historyBody">
-                        <tr class="placeholder-row"><td colspan="6">Loading applied jobs...</td></tr>
+                        <tr class="placeholder-row"><td colspan="7">Loading applied jobs...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -215,14 +226,37 @@
                 return !!(job.Date_Applied && job.Date_Applied !== 'Pending');
             }
 
+            // The bot writes `Date Applied` as "YYYY-MM-DD HH:MM:SS.ffffff". Show it as a
+            // readable local "DD Mon YYYY, HH:MM" and keep the raw value in the title.
+            function formatApplied(value) {
+                var text = String(value == null ? '' : value).trim();
+                if (!text) return { label: '', title: '' };
+                var match = text.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/);
+                if (!match) return { label: text, title: text };   // already human-ish, show as-is
+                var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+                var month = months[parseInt(match[2], 10) - 1] || match[2];
+                var label = match[3] + " + month + " + match[1] + ", " + match[4] + ":" + match[5];
+                if (match[6]) label += ":" + match[6];
+                return { label: label, title: text };
+            }
+
             function buildAppliedCell(job) {
                 var td = makeCell('td', { center: true });
                 if (isAppliedAlready(job)) {
+                    var info = formatApplied(job.Date_Applied);
+                    var wrap = document.createElement('span');
+                    wrap.className = 'applied-stamp';
+                    wrap.title = info.title;      // full timestamp incl. seconds on hover
                     var span = document.createElement('span');
                     span.className = 'tick';
                     span.setAttribute('aria-label', 'Applied');
                     span.textContent = '✓';
-                    td.appendChild(span);
+                    wrap.appendChild(span);
+                    var stamp = document.createElement('span');
+                    stamp.className = 'applied-when';
+                    stamp.textContent = info.label;
+                    wrap.appendChild(stamp);
+                    td.appendChild(wrap);
                 }
                 return td;
             }
@@ -234,12 +268,11 @@
                 if (!row) return;
                 var appliedCell = row.querySelector('.applied-cell');
                 if (!appliedCell) return;
-                appliedCell.innerHTML = '';
-                var span = document.createElement('span');
-                span.className = 'tick';
-                span.setAttribute('aria-label', 'Applied');
-                span.textContent = '✓';
-                appliedCell.appendChild(span);
+                // Reuse buildAppliedCell so the freshly marked row gets the same
+                // "✓ <date>" treatment as rows rendered from the server.
+                var replacement = buildAppliedCell(record || { Date_Applied: new Date().toISOString() });
+                replacement.classList.add('applied-cell');
+                row.replaceChild(replacement, appliedCell);
             }
 
             function buildApplicationCell(job) {
@@ -301,6 +334,14 @@
                 appliedCell.classList.add('applied-cell');
                 tr.appendChild(appliedCell);
 
+                // Dedicated date/time column, so the timestamp is readable even when the
+                // "Applied" tick column is narrow.
+                var whenCell = makeCell('td', { text: isAppliedAlready(job)
+                    ? formatApplied(job.Date_Applied).label
+                    : 'Not applied yet' });
+                if (isAppliedAlready(job)) whenCell.title = String(job.Date_Applied);
+                tr.appendChild(whenCell);
+
                 return tr;
             }
 
@@ -320,7 +361,7 @@
                 var tr = document.createElement('tr');
                 tr.className = 'placeholder-row' + (isError ? ' error' : '');
                 var td = document.createElement('td');
-                td.colSpan = 6;
+                td.colSpan = 7;
                 td.textContent = message;
                 tr.appendChild(td);
                 tbody.appendChild(tr);
@@ -353,19 +394,45 @@
 
             sortBtn.addEventListener('click', toggleSort);
 
-            fetch('/applied-jobs')
-                .then(function (resp) {
-                    if (!resp.ok) throw new Error('Server responded with ' + resp.status);
-                    return resp.json();
-                })
-                .then(function (data) {
-                    jobs = Array.isArray(data) ? data : [];
-                    render();
-                })
-                .catch(function (err) {
-                    console.error('Failed to load applied jobs:', err);
-                    showPlaceholder('Could not load applied jobs. Make sure the app is running and try refreshing this page.', true);
-                });
+            var firstLoadDone = false;
+
+            function loadJobs() {
+                return fetch('/applied-jobs', { cache: 'no-store' })
+                    .then(function (resp) {
+                        if (!resp.ok) throw new Error('Server responded with ' + resp.status);
+                        return resp.json();
+                    })
+                    .then(function (data) {
+                        jobs = Array.isArray(data) ? data : [];
+                        render();
+                        firstLoadDone = true;
+                        return true;
+                    })
+                    .catch(function (err) {
+                        console.error('Failed to load applied jobs:', err);
+                        // Only blank the table out on the FIRST load. A later poll failing
+                        // (e.g. the server was briefly busy) must not wipe rows the user is
+                        // already looking at.
+                        if (!firstLoadDone) {
+                            showPlaceholder('Could not load applied jobs. Make sure the app is running and try refreshing this page.', true);
+                        }
+                        return false;
+                    });
+            }
+
+            loadJobs();
+
+            // Auto-refresh while the bot is running so a job appears as soon as its row is
+            // written to the CSV, instead of needing a manual page reload.
+            var POLL_MS = 5000;
+            setInterval(function () {
+                fetch('/api/status', { cache: 'no-store' })
+                    .then(function (resp) { return resp.json(); })
+                    .then(function (status) {
+                        if (status && status.running) loadJobs();
+                    })
+                    .catch(function () { /* ignore transient poll errors */ });
+            }, POLL_MS);
         })();
     </script>
 </body>

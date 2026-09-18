@@ -1,23 +1,3 @@
-'''
-Author:     Sai Vignesh Golla
-License:    MIT License
-            https://opensource.org/license/mit
-GitHub:     https://github.com/GodsScion/Auto_job_applier_linkedIn
-Local "control panel" web app. It lets a non-technical person configure and run
-the tool from a browser instead of editing Python files and using a terminal.
-
-IMPORTANT - how configuration works:
-  * This app reads/writes ONLY `user_config.json` at the project root.
-  * It NEVER edits the config/*.py files.
-  * The config/*.py modules load user_config.json over their built-in defaults
-    (see config/_overrides.py), so saving here changes the tool's behaviour
-    while leaving the classic "edit the .py files" workflow intact. With no
-    user_config.json present the tool behaves exactly as it always has.
-
-SECURITY: this app handles LinkedIn credentials, so it binds to 127.0.0.1 only
-(never 0.0.0.0) and runs with debug OFF. Do not change these.
-'''
-
 from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
 import csv
@@ -45,7 +25,7 @@ LOG_PATH = os.path.join(ROOT, ".bot_run.log")
 PID_PATH = os.path.join(ROOT, ".bot_run.pid")
 MANUAL_QUESTION_PATH = os.path.join(ROOT, ".manual_question.json")
 
-PATH = 'all excels/'
+PATH = "all excels/"
 
 
 # ===========================================================================
@@ -54,11 +34,11 @@ PATH = 'all excels/'
 # "default overlaid with the user's current saved values".
 # ===========================================================================
 def _load_defaults() -> dict:
-    '''
+    """
     Import each config module with overrides temporarily disabled, so we read
     the untouched Python defaults regardless of whether user_config.json exists
     right now. Returns {config_module: {key: default_value}}.
-    '''
+    """
     original_loader = _overrides.load_user_config
     _overrides.load_user_config = lambda: {}
     try:
@@ -67,6 +47,7 @@ def _load_defaults() -> dict:
         import config.questions as _questions
         import config.search as _search
         import config.settings as _settings
+
         modules = {
             "secrets": _secrets,
             "personals": _personals,
@@ -95,11 +76,11 @@ DEFAULTS = _load_defaults()
 # Config API helpers
 # ===========================================================================
 def _effective_config() -> dict:
-    '''
+    """
     Return {config_module: {key: value}} of the pristine defaults overlaid with
     the CURRENT contents of user_config.json (re-read from disk on every call).
     Only keys defined in config_schema are included.
-    '''
+    """
     effective = copy.deepcopy(DEFAULTS)
     user = _overrides.load_user_config()
     for field in config_schema.iter_fields():
@@ -112,10 +93,10 @@ def _effective_config() -> dict:
 
 
 def _coerce(field_type: str, value):
-    '''
+    """
     Coerce an incoming JSON value into the type declared for the field in the
     schema. Raises ValueError on invalid numbers so the caller can reject them.
-    '''
+    """
     if field_type in ("text", "password", "textarea", "select"):
         return "" if value is None else str(value)
 
@@ -159,19 +140,20 @@ _bot_lock = threading.Lock()
 
 
 def _bot_command():
-    '''The command used to launch the bot. Isolated so tests can monkeypatch it.'''
+    """The command used to launch the bot. Isolated so tests can monkeypatch it."""
     return [sys.executable, os.path.join(ROOT, "runAiBot.py")]
 
 
 def _read_pid_file() -> int | None:
-    '''The PID recorded by the last successful start, or None if there isn't a valid one.'''
+    """The PID recorded by the last successful start, or None if there isn't a valid one."""
     try:
         return int(open(PID_PATH, encoding="utf-8").read().strip())
     except (OSError, ValueError):
         return None
 
+
 def _pid_alive(pid: int) -> bool:
-    '''
+    """
     True if `pid` names a live process. Deliberately does not care whether it is OUR bot -
     the question is only "is something holding this PID", which is what the PID file asserts.
 
@@ -180,13 +162,14 @@ def _pid_alive(pid: int) -> bool:
     Python (which this project's .venv is often built on) actually fails with
     "[WinError 2] The system cannot find the file specified" because of the Store build's
     execution aliases, so the subprocess flavor of this probe is simply not reliable here.
-    '''
+    """
     if not pid or pid <= 0:
         return False
     try:
         if os.name == "nt":
             import ctypes
             from ctypes import wintypes
+
             PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
             kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
             handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
@@ -196,7 +179,7 @@ def _pid_alive(pid: int) -> bool:
                 # ExitCode STILL_ACTIVE (259) means it hasn't exited.
                 code = wintypes.DWORD()
                 if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
-                    return True     # openable but unqueryable: treat as alive
+                    return True  # openable but unqueryable: treat as alive
                 return code.value == 259
             finally:
                 kernel32.CloseHandle(handle)
@@ -209,14 +192,15 @@ def _pid_alive(pid: int) -> bool:
         # assume it is alive rather than risk starting a second bot over it.
         return True
 
+
 def _is_running() -> bool:
-    '''
+    """
     True if the bot subprocess is still running.
 
     Checks the in-memory handle first, then falls back to the PID file on disk, so a bot
     started by an earlier app.py (or by hand) is still recognized instead of being started
     a second time over the top of the first.
-    '''
+    """
     global _bot_proc
     if _bot_proc is not None:
         if _bot_proc.poll() is None:
@@ -235,12 +219,14 @@ def _is_running() -> bool:
     _remove_pid_file()
     return False
 
+
 def _current_pid() -> int | None:
-    '''PID of the running bot, from the live handle or the PID file, else None.'''
+    """PID of the running bot, from the live handle or the PID file, else None."""
     if _bot_proc is not None and _bot_proc.poll() is None:
         return _bot_proc.pid
     pid = _read_pid_file()
     return pid if _pid_alive(pid) else None
+
 
 def _remove_pid_file():
     try:
@@ -250,7 +236,7 @@ def _remove_pid_file():
 
 
 def _terminate(proc) -> None:
-    '''Terminate the subprocess and, where feasible, its child processes.'''
+    """Terminate the subprocess and, where feasible, its child processes."""
     if proc is None or proc.poll() is not None:
         return
     try:
@@ -258,7 +244,8 @@ def _terminate(proc) -> None:
             # Kill the whole process tree on Windows.
             subprocess.run(
                 ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
             )
         else:
             # We launched with start_new_session=True, so the child is its own
@@ -272,7 +259,6 @@ def _terminate(proc) -> None:
             proc.terminate()
         except Exception:
             pass
-
 
     # Give it a moment, then force-kill if still alive.
     try:
@@ -298,7 +284,7 @@ def _clear_manual_question():
 # control_panel.html, so that template stays a pure offline document.
 # ponytail: string append at </body>; move it into the template if it ever needs
 # to be more than a one-line banner.
-_UPDATE_BAR = '''
+_UPDATE_BAR = """
 <div id="updateBar" style="display:none;position:sticky;bottom:0;z-index:10;background:#fffbeb;
      border-top:1px solid #dce1e8;padding:10px 16px;font:14px -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#1f2733">
   <span id="updateText"></span>
@@ -327,38 +313,47 @@ _UPDATE_BAR = '''
     });
 })();
 </script>
-'''
+"""
 
 
-@app.route('/')
+@app.route("/")
 def home():
     """Serve the control panel single-page app, with the update bar appended."""
-    return render_template('control_panel.html').replace('</body>', _UPDATE_BAR + '</body>', 1)
+    return render_template("control_panel.html").replace(
+        "</body>", _UPDATE_BAR + "</body>", 1
+    )
 
 
-@app.route('/history')
+@app.route("/history")
 def history():
     """Serve the applied-jobs history page."""
-    return render_template('index.html')
+    return render_template("index.html")
 
 
 # The applied-jobs history CSV the bot writes, and how its columns map to the JSON
 # keys the history page consumes.
-_HISTORY_CSV = 'all_applied_applications_history.csv'
-_FAILED_HISTORY_CSV = 'all_failed_applications_history.csv'
+#
+# This CSV has TWO writers: the bot subprocess appends a row per submitted job, and
+# `mark_job_applied` below REWRITES the whole file. An append landing between that
+# endpoint's read and its write is silently lost. The lock serialises the endpoint's own
+# read-modify-write against other requests in THIS process; it cannot reach across into the
+# bot subprocess, which is why the marker is written as one tight read-write section.
+_history_lock = threading.Lock()
+_HISTORY_CSV = "all_applied_applications_history.csv"
+_FAILED_HISTORY_CSV = "all_failed_applications_history.csv"
 _HISTORY_FIELDS = {
-    'Job ID': 'Job_ID',
-    'Title': 'Title',
-    'Company': 'Company',
-    'HR Name': 'HR_Name',
-    'HR Link': 'HR_Link',
-    'Job Link': 'Job_Link',
-    'External Job link': 'External_Job_link',
-    'Date Applied': 'Date_Applied',
+    "Job ID": "Job_ID",
+    "Title": "Title",
+    "Company": "Company",
+    "HR Name": "HR_Name",
+    "HR Link": "HR_Link",
+    "Job Link": "Job_Link",
+    "External Job link": "External_Job_link",
+    "Date Applied": "Date_Applied",
 }
 
 
-@app.route('/applied-jobs', methods=['GET'])
+@app.route("/applied-jobs", methods=["GET"])
 def get_applied_jobs():
     """Return the applied-jobs history as JSON for the history page."""
     csv_path = os.path.join(PATH, _HISTORY_CSV)
@@ -366,15 +361,17 @@ def get_applied_jobs():
         return jsonify({"error": "No applications history found yet."}), 404
     try:
         jobs = []
-        with open(csv_path, 'r', encoding='utf-8') as f:
+        with open(csv_path, "r", encoding="utf-8") as f:
             for row in csv.DictReader(f):
-                jobs.append({key: row.get(col, '') for col, key in _HISTORY_FIELDS.items()})
+                jobs.append(
+                    {key: row.get(col, "") for col, key in _HISTORY_FIELDS.items()}
+                )
         return jsonify(jobs)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 
-@app.route('/failed-jobs', methods=['GET'])
+@app.route("/failed-jobs", methods=["GET"])
 def get_failed_jobs():
     """Return failed / stopped-in-the-middle records from the bot's failed log CSV.
 
@@ -385,82 +382,88 @@ def get_failed_jobs():
     if not os.path.exists(csv_path):
         return jsonify([])
     try:
-        with open(csv_path, 'r', encoding='utf-8') as f:
+        with open(csv_path, "r", encoding="utf-8") as f:
             reader = csv.DictReader(f)
             rows = list(reader)
 
         entries = []
         for row in rows:
-            company = (row.get('Company') or '').strip()
-            title = (row.get('Title') or '').strip()
-            status = (row.get('Status') or '').strip()
-            hr_name = (row.get('HR Name') or '').strip()
-            hr_link = (row.get('HR Link') or '').strip()
-            job_link = (row.get('Job Link') or '').strip()
-            external_link = (row.get('External Job link') or '').strip()
+            company = (row.get("Company") or "").strip()
+            title = (row.get("Title") or "").strip()
+            status = (row.get("Status") or "").strip()
+            hr_name = (row.get("HR Name") or "").strip()
+            hr_link = (row.get("HR Link") or "").strip()
+            job_link = (row.get("Job Link") or "").strip()
+            external_link = (row.get("External Job link") or "").strip()
 
             # Normalize the row's placeholder markers into the same missing-value
             # vocabulary the CSV writer uses, so the UI no longer prints a wall of
             # synthetic Unknown — Unknown — Not applied / stopped lines.
-            company = 'Unknown' if company == '' else company
-            title = 'Unknown' if title == '' else title
-            status = 'Not applied / stopped' if status == '' else status
-            hr_name = 'Unknown' if hr_name == '' else hr_name
-            hr_link = '' if hr_link in ('', 'Unknown') else hr_link
-            job_link = '' if job_link in ('', 'Unknown') else job_link
-            external_link = '' if external_link in ('', 'Unknown') else external_link
+            company = "Unknown" if company == "" else company
+            title = "Unknown" if title == "" else title
+            status = "Not applied / stopped" if status == "" else status
+            hr_name = "Unknown" if hr_name == "" else hr_name
+            hr_link = "" if hr_link in ("", "Unknown") else hr_link
+            job_link = "" if job_link in ("", "Unknown") else job_link
+            external_link = "" if external_link in ("", "Unknown") else external_link
 
             placeholder_only = (
-                company == 'Unknown' and
-                title == 'Unknown' and
-                status == 'Not applied / stopped' and
-                hr_name == 'Unknown' and
-                not hr_link and
-                not job_link and
-                not external_link
+                company == "Unknown"
+                and title == "Unknown"
+                and status == "Not applied / stopped"
+                and hr_name == "Unknown"
+                and not hr_link
+                and not job_link
+                and not external_link
             )
             if placeholder_only:
                 continue
 
-            entries.append({
-                'Job_ID': row.get('Job ID', ''),
-                'Company': company,
-                'Title': title,
-                'Status': status,
-                'Assumed_Reason': row.get('Assumed Reason', ''),
-                'HR_Name': hr_name,
-                'HR_Link': hr_link,
-                'Job_Link': job_link,
-                'External_Job_link': external_link,
-                'Date_Tried': row.get('Date Tried', ''),
-            })
+            entries.append(
+                {
+                    "Job_ID": row.get("Job ID", ""),
+                    "Company": company,
+                    "Title": title,
+                    "Status": status,
+                    "Assumed_Reason": row.get("Assumed Reason", ""),
+                    "HR_Name": hr_name,
+                    "HR_Link": hr_link,
+                    "Job_Link": job_link,
+                    "External_Job_link": external_link,
+                    "Date_Tried": row.get("Date Tried", ""),
+                }
+            )
         return jsonify(entries)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 
-@app.route('/applied-jobs/<job_id>', methods=['PUT'])
+@app.route("/applied-jobs/<job_id>", methods=["PUT"])
 def mark_job_applied(job_id):
     """Stamp one job's 'Date Applied' (matched by Job ID) with the current time."""
+    # Read-modify-write under `_history_lock`: two concurrent PUTs would otherwise both
+    # read the old file and each overwrite the other's edit. The whole read -> modify ->
+    # write must sit inside the lock for the update to be atomic.
     csv_path = os.path.join(PATH, _HISTORY_CSV)
     if not os.path.exists(csv_path):
         return jsonify({"error": f"History file not found at {csv_path}"}), 404
     try:
-        with open(csv_path, 'r', encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-            columns = reader.fieldnames
-            rows = list(reader)
-        matched = False
-        for row in rows:
-            if row.get('Job ID') == job_id:
-                row['Date Applied'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                matched = True
-        if not matched:
-            return jsonify({"error": f"Job ID {job_id} not found"}), 404
-        with open(csv_path, 'w', encoding='utf-8', newline='') as f:
-            writer = csv.DictWriter(f, fieldnames=columns)
-            writer.writeheader()
-            writer.writerows(rows)
+        with _history_lock:
+            with open(csv_path, "r", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                columns = reader.fieldnames
+                rows = list(reader)
+            matched = False
+            for row in rows:
+                if row.get("Job ID") == job_id:
+                    row["Date Applied"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    matched = True
+            if not matched:
+                return jsonify({"error": f"Job ID {job_id} not found"}), 404
+            with open(csv_path, "w", encoding="utf-8", newline="") as f:
+                writer = csv.DictWriter(f, fieldnames=columns)
+                writer.writeheader()
+                writer.writerows(rows)
         return jsonify({"message": "Date Applied updated."}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -469,32 +472,35 @@ def mark_job_applied(job_id):
 # ===========================================================================
 # Control-panel API
 # ===========================================================================
-@app.route('/api/schema', methods=['GET'])
+@app.route("/api/schema", methods=["GET"])
 def api_schema():
-    '''Returns the field schema the UI renders its forms from.'''
+    """Returns the field schema the UI renders its forms from."""
     return jsonify(config_schema.SCHEMA)
 
 
-@app.route('/api/config', methods=['GET'])
+@app.route("/api/config", methods=["GET"])
 def api_get_config():
-    '''
+    """
     Returns the effective config: pristine defaults overlaid with the current
     user_config.json, grouped by config module (secrets, personals, questions,
     search, settings).
-    '''
+    """
     return jsonify(_effective_config())
 
 
-@app.route('/api/config', methods=['POST'])
+@app.route("/api/config", methods=["POST"])
 def api_save_config():
-    '''
+    """
     Accepts {config_module: {key: value}}, validates against the schema, coerces
     each value to its declared type, rejects unknown modules/keys, merges into
     user_config.json (read-modify-write) and returns the full saved config.
-    '''
+    """
     payload = request.get_json(silent=True)
     if not isinstance(payload, dict):
-        return jsonify({"error": "Expected a JSON object of {section: {key: value}}"}), 400
+        return (
+            jsonify({"error": "Expected a JSON object of {section: {key: value}}"}),
+            400,
+        )
 
     valid = config_schema.valid_keys()
     unknown = []
@@ -514,7 +520,10 @@ def api_save_config():
             try:
                 coerced.setdefault(section, {})[key] = _coerce(field["type"], value)
             except ValueError as err:
-                return jsonify({"error": f"Invalid value for '{section}.{key}': {err}"}), 400
+                return (
+                    jsonify({"error": f"Invalid value for '{section}.{key}': {err}"}),
+                    400,
+                )
 
     if unknown:
         return jsonify({"error": "Unknown settings rejected", "unknown": unknown}), 400
@@ -532,26 +541,36 @@ def api_save_config():
         with open(USER_CONFIG_PATH, "w", encoding="utf-8") as file:
             json.dump(current, file, indent=2, ensure_ascii=False)
     except OSError as err:
-        return jsonify({
-            "error": (
-                f"Could not save settings: {err}. The folder holding "
-                f"'{USER_CONFIG_PATH}' is not writable. On a hosted/serverless "
-                f"environment set the USER_CONFIG_PATH environment variable to a "
-                f"writable path (e.g. /tmp/user_config.json)."
-            )
-        }), 500
+        return (
+            jsonify(
+                {
+                    "error": (
+                        f"Could not save settings: {err}. The folder holding "
+                        f"'{USER_CONFIG_PATH}' is not writable. On a hosted/serverless "
+                        f"environment set the USER_CONFIG_PATH environment variable to a "
+                        f"writable path (e.g. /tmp/user_config.json)."
+                    )
+                }
+            ),
+            500,
+        )
 
     return jsonify(current)
 
 
-@app.route('/api/run', methods=['POST'])
+@app.route("/api/run", methods=["POST"])
 def api_run():
-    '''Starts the bot as a subprocess if it isn't already running.'''
+    """Starts the bot as a subprocess if it isn't already running."""
     global _bot_proc
     with _bot_lock:
         if _is_running():
-            return jsonify({"running": True, "pid": _current_pid(),
-                            "message": "The tool is already running."})
+            return jsonify(
+                {
+                    "running": True,
+                    "pid": _current_pid(),
+                    "message": "The tool is already running.",
+                }
+            )
         # The log file is opened here and handed to the child, so the parent no longer
         # needs its own handle once Popen has duplicated it. Left unclosed it stayed open
         # for the life of the server, forever holding the write lock on .bot_run.log.
@@ -579,9 +598,9 @@ def api_run():
         return jsonify({"running": True, "pid": _bot_proc.pid})
 
 
-@app.route('/api/stop', methods=['POST'])
+@app.route("/api/stop", methods=["POST"])
 def api_stop():
-    '''Stops the running bot subprocess (and its children where possible).'''
+    """Stops the running bot subprocess (and its children where possible)."""
     global _bot_proc
     with _bot_lock:
         if _bot_proc is not None:
@@ -592,9 +611,9 @@ def api_stop():
         return jsonify({"running": False})
 
 
-@app.route('/api/status', methods=['GET'])
+@app.route("/api/status", methods=["GET"])
 def api_status():
-    '''Reports whether the bot subprocess is currently running.'''
+    """Reports whether the bot subprocess is currently running."""
     with _bot_lock:
         running = _is_running()
         pid = _current_pid() if running else None
@@ -610,7 +629,7 @@ def api_status():
         return jsonify({"running": running, "pid": pid, "manual_question": question})
 
 
-@app.route('/api/manual-question', methods=['POST'])
+@app.route("/api/manual-question", methods=["POST"])
 def api_manual_question():
     """Send the user's decision for the question currently blocking the bot."""
     payload = request.get_json(silent=True) or {}
@@ -631,12 +650,12 @@ def api_manual_question():
     return jsonify({"ok": True, "action": action})
 
 
-@app.route('/api/logs', methods=['GET'])
+@app.route("/api/logs", methods=["GET"])
 def api_logs():
-    '''
+    """
     Returns the run log starting from byte offset ?offset=N, plus the byte
     offset to read from next time. The UI polls this while the bot runs.
-    '''
+    """
     try:
         offset = int(request.args.get("offset", 0))
     except (TypeError, ValueError):
@@ -664,7 +683,7 @@ def api_logs():
 # Update check (see modules/updater.py)
 # ===========================================================================
 def _freeze_config() -> None:
-    '''
+    """
     Copy the settings the tool is using RIGHT NOW into user_config.json, before
     an update rewrites the config/*.py files.
 
@@ -676,7 +695,7 @@ def _freeze_config() -> None:
     ponytail: this pins every schema key to today's value, so a later change to
     a shipped default stops reaching that user. Acceptable - a hand-edited file
     was already pinned. Freeze only the keys that differ from HEAD if it bites.
-    '''
+    """
     current = _overrides.load_user_config()
     for section, values in _effective_config().items():
         if not isinstance(current.get(section), dict):
@@ -687,38 +706,48 @@ def _freeze_config() -> None:
         json.dump(current, file, indent=2, ensure_ascii=False)
 
 
-@app.route('/api/update-check', methods=['GET'])
+@app.route("/api/update-check", methods=["GET"])
 def api_update_check():
-    '''
+    """
     The local version vs the published one. Reports "no update" rather than an
     error when the check fails, so being offline is invisible to the user. The
     UI calls this after the page is interactive, so it never delays startup.
-    '''
+    """
     latest = updater.latest_version()
     current = updater.current_version()
-    return jsonify({"current": current, "latest": latest,
-                    "update_available": updater.is_newer(latest, current)})
+    return jsonify(
+        {
+            "current": current,
+            "latest": latest,
+            "update_available": updater.is_newer(latest, current),
+        }
+    )
 
 
-@app.route('/api/update', methods=['POST'])
+@app.route("/api/update", methods=["POST"])
 def api_update():
-    '''Saves the live settings, then fast-forwards this clone to the newest commit.'''
+    """Saves the live settings, then fast-forwards this clone to the newest commit."""
     try:
         _freeze_config()
     except OSError as err:
-        return jsonify({"ok": False,
-                        "message": "Could not save your settings first: %s" % err}), 500
+        return (
+            jsonify(
+                {"ok": False, "message": "Could not save your settings first: %s" % err}
+            ),
+            500,
+        )
     return jsonify(updater.self_update())
 
 
 def _resolve_port(preferred: int = 5000) -> int:
-    '''
+    """
     Pick a port to serve on. Honors the PORT environment variable (the launcher
     scripts set it). Otherwise tries `preferred`, and if that's taken - e.g. port
     5000 is used by AirPlay Receiver on macOS - asks the OS for any free port so
     the panel always starts instead of crashing with "address already in use".
-    '''
+    """
     import socket
+
     requested = os.environ.get("PORT", "").strip()
     if requested.isdigit():
         return int(requested)
@@ -733,7 +762,7 @@ def _resolve_port(preferred: int = 5000) -> int:
         return probe.getsockname()[1]
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # SECURITY: localhost only, debug OFF. This app handles credentials.
     port = _resolve_port(5000)
     url = "http://127.0.0.1:%d" % port
@@ -744,8 +773,14 @@ if __name__ == '__main__':
     )
     # The launcher scripts set PANEL_OPEN_BROWSER=1 so the browser opens itself,
     # to the right port, cross-platform. Running `python app.py` by hand won't.
-    if os.environ.get("PANEL_OPEN_BROWSER", "").strip() not in ("", "0", "false", "False"):
+    if os.environ.get("PANEL_OPEN_BROWSER", "").strip() not in (
+        "",
+        "0",
+        "false",
+        "False",
+    ):
         import threading
         import webbrowser
+
         threading.Timer(1.5, lambda: webbrowser.open(url)).start()
     app.run(host="127.0.0.1", port=port, debug=False)
