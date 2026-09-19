@@ -163,9 +163,10 @@ def boolean_button_click(driver: WebDriver, actions: ActionChains, text: str) ->
         print_lg("Click Failed! Didn't find '"+text+"'", f"({type(e).__name__})")
 
 # Find functions
-def find_by_class(driver: WebDriver, class_name: str, time: float=5.0) -> WebElement | Exception:
+def find_by_class(driver: WebDriver, class_name: str, time: float=5.0) -> WebElement:
     '''
-    Waits for a max of `time` seconds for element to be found, and returns `WebElement` if found, else `Exception` if not found.
+    Waits for a max of `time` seconds for element to be found and returns the `WebElement`.
+    Raises `TimeoutException` if nothing matched - it does not return an exception object.
     '''
     return WebDriverWait(driver, time).until(EC.presence_of_element_located((By.CLASS_NAME, class_name)))
 

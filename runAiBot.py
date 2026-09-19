@@ -278,7 +278,10 @@ def get_applied_job_ids() -> set[str]:
         with open(file_name, 'r', encoding='utf-8') as file:
             reader = csv.reader(file)
             for row in reader:
-                job_ids.add(row[0])
+                # Skip blank/short rows (a stray newline or a truncated write) so one bad
+                # line can't raise IndexError and abort the whole ID collection.
+                if row and row[0].strip():
+                    job_ids.add(row[0].strip())
     except FileNotFoundError:
         print_lg(f"The CSV file '{file_name}' does not exist.")
     return job_ids
@@ -434,7 +437,15 @@ def get_job_main_details(job: WebElement, blacklisted_companies: set, rejected_j
         if job.find_element(By.CLASS_NAME, "job-card-container__footer-job-state").text == "Applied":
             skip = True
             print_lg(f'Already applied to "{title} | {company}" job. Job ID: {job_id}!')
-    except: pass
+    except NoSuchElementException:
+        # No footer state node means LinkedIn is not showing an "Applied" badge on this
+        # card, which is the normal case for an un-applied job. Nothing to log.
+        pass
+    except Exception as e:
+        # A stale/non-readable footer left us unable to prove the job was already applied.
+        # Surface it instead of swallowing it, so a re-submit shows up in the log rather
+        # than silently passing as "not applied".
+        print_lg(f'Could not read the applied-state badge for "{title} | {company}". Job ID: {job_id}!', e)
     try:
         if not skip: job_details_button.click()
     except Exception as e:
@@ -762,6 +773,50 @@ def resolve_answer_for_label(label: str, answer: str | None, work_location: str,
 MANUAL_PAUSE_REQUESTED = object()
 
 
+def _answer_name_question(label: str) -> str:
+    '''
+    The configured name for a name question - full, first, middle, last/surname or
+    employer. A `name`/`surname` label with none of those qualifiers falls back to
+    the full name.
+    '''
+    if label_has(label, 'full'): return full_name
+    if label_has(label, 'first') and not label_has(label, 'last'): return first_name
+    if label_has(label, 'middle') and not label_has(label, 'last'): return middle_name
+    if label_has(label, 'last', 'surname') and not label_has(label, 'first'): return last_name
+    if label_has(label, 'employer'): return recent_employer
+    return full_name
+
+def _answer_notice_period_question(label: str) -> str:
+    '''The configured notice period, asked either in months (the default) or weeks.'''
+    if label_has(label, 'month', 'months', 'monthly'): return notice_period_months
+    if label_has(label, 'week', 'weeks', 'weekly'): return notice_period_weeks
+    return notice_period
+
+def _answer_salary_question(label: str) -> str:
+    '''
+    The configured salary/CTC, current or desired, asked monthly or in lakhs (default raw).
+    Mutually exclusive sub-branches, so they read as early returns rather than nesting.
+    '''
+    current = label_has(label, 'current', 'present')
+    monthly = label_has(label, 'month', 'months', 'monthly')
+    lakhs = label_has(label, 'lakh', 'lakhs')
+    if current:
+        if monthly: return current_ctc_monthly
+        if lakhs: return current_ctc_lakhs
+        return current_ctc
+    if monthly: return desired_salary_monthly
+    if lakhs: return desired_salary_lakhs
+    return desired_salary
+# label keyword(s) the question must carry -> helper that answers it. Consumed by
+# `_extract_text_answer` after the work-authorization, experience, phone, street,
+# email, city and signature branches, which need their own handling.
+_TEXT_ANSWER_HELPERS: tuple[tuple[tuple[str, ...], callable], ...] = (
+    (('name', 'surname'), _answer_name_question),
+    (('notice',), _answer_notice_period_question),
+    (('salary', 'compensation', 'ctc', 'pay'), _answer_salary_question),
+)
+
+
 def _extract_text_answer(label: str, label_org: str, work_location: str, job_description: str | None):
     '''
     Pick the configured answer for a free-text question, or `"` when none fits.
@@ -791,34 +846,9 @@ def _extract_text_answer(label: str, label_org: str, work_location: str, job_des
         answer = current_city if current_city else work_location
         do_actions = True
     elif label_has(label, 'signature'): answer = full_name # 'signature' in label or 'legal name' in label or 'your name' in label or 'full name' in label: answer = full_name     # What if question is 'name of the city or university you attend, name of referral etc?'
-    elif label_has(label, 'name', 'surname'):
-        if label_has(label, 'full'): answer = full_name
-        elif label_has(label, 'first') and not label_has(label, 'last'): answer = first_name
-        elif label_has(label, 'middle') and not label_has(label, 'last'): answer = middle_name
-        elif label_has(label, 'last', 'surname') and not label_has(label, 'first'): answer = last_name
-        elif label_has(label, 'employer'): answer = recent_employer
-        else: answer = full_name
-    elif label_has(label, 'notice'):
-        if label_has(label, 'month', 'months', 'monthly'):
-            answer = notice_period_months
-        elif label_has(label, 'week', 'weeks', 'weekly'):
-            answer = notice_period_weeks
-        else: answer = notice_period
-    elif label_has(label, 'salary', 'compensation', 'ctc', 'pay'):
-        if label_has(label, 'current', 'present'):
-            if label_has(label, 'month', 'months', 'monthly'):
-                answer = current_ctc_monthly
-            elif label_has(label, 'lakh', 'lakhs'):
-                answer = current_ctc_lakhs
-            else:
-                answer = current_ctc
-        else:
-            if label_has(label, 'month', 'months', 'monthly'):
-                answer = desired_salary_monthly
-            elif label_has(label, 'lakh', 'lakhs'):
-                answer = desired_salary_lakhs
-            else:
-                answer = desired_salary
+    elif (matched := next((helper(label) for keywords, helper in _TEXT_ANSWER_HELPERS
+                           if label_has(label, *keywords)), None)) is not None:
+        answer = matched
     elif label_has(label, 'linkedin'): answer = linkedIn
     elif label_has(label, 'website', 'blog', 'portfolio', 'link', 'links'): answer = website
     elif label_has(label, 'scale of 1-10'): answer = confidence_level

@@ -32,15 +32,17 @@ def check_boolean(var: bool, var_name: str) -> bool:
     if var == True or var == False: return True
     raise ValueError(f'The variable "{var_name}" in "{__validation_file_path}" expects a Boolean input `True` or `False`, not "{var}" of type "{type(var)}" instead!\n\nSolution:\nPlease open "{__validation_file_path}" and update "{var_name}" to either `True` or `False` (case-sensitive, T and F must be CAPITAL/uppercase).\nExample: `{var_name} = True`\n\nNOTE: Do NOT surround Boolean values in quotes ("True")X !\n\n')
 
-def check_string(var: str, var_name: str, options: list=[], min_length: int=0) -> bool:
+def check_string(var: str, var_name: str, options: list | None=None, min_length: int=0) -> bool:
     '''Return True if `var` is a valid string; raise TypeError/ValueError otherwise.'''
+    options = options or []     # a shared mutable default would leak edits across calls
     if not isinstance(var, str): raise TypeError(f'Invalid input for {var_name}. Expecting a String!')
     if min_length > 0 and len(var) < min_length: raise ValueError(f'Invalid input for {var_name}. Expecting a String of length at least {min_length}!')
     if len(options) > 0 and var not in options: raise ValueError(f'Invalid input for {var_name}. Expecting a value from {options}, not {var}!')
     return True
 
-def check_list(var: list, var_name: str, options: list=[], min_length: int=0) -> bool:
+def check_list(var: list, var_name: str, options: list | None=None, min_length: int=0) -> bool:
     '''Return True if `var` is a valid list of strings; raise TypeError/ValueError otherwise.'''
+    options = options or []     # a shared mutable default would leak edits across calls
     if not isinstance(var, list): 
         raise TypeError(f'Invalid input for {var_name}. Expecting a List!')
     if len(var) < min_length: raise ValueError(f'Invalid input for {var_name}. Expecting a List of length at least {min_length}!')
@@ -155,6 +157,19 @@ def validate_search() -> None | ValueError | TypeError:
 
 
 from config.secrets import *
+def _validate_ai_settings(use_AI: bool) -> None:
+    '''
+    Validate the AI server settings, but only when AI is actually turned on. With
+    `use_AI = False` (the default) a blank or placeholder `llm_api_url` must not block
+    startup, since nothing will ever read it.
+    '''
+    if not use_AI:
+        return
+    check_string(llm_api_url, "llm_api_url", min_length=5)
+    check_string(llm_api_key, "llm_api_key")
+    check_string(ai_provider, "ai_provider", ["openai", "deepseek", "gemini"])
+    check_string(llm_model, "llm_model")
+
 def validate_secrets() -> None | ValueError | TypeError:
     '''
     Validates all variables in the `/config/secrets.py` file.
@@ -166,10 +181,7 @@ def validate_secrets() -> None | ValueError | TypeError:
     check_string(password, "password", min_length=5)
 
     check_boolean(use_AI, "use_AI")
-    check_string(llm_api_url, "llm_api_url", min_length=5)
-    check_string(llm_api_key, "llm_api_key")
-    check_string(ai_provider, "ai_provider", ["openai", "deepseek", "gemini"])
-    check_string(llm_model, "llm_model")
+    _validate_ai_settings(use_AI)
 
 
 from config.settings import *

@@ -371,6 +371,52 @@ def get_applied_jobs():
         return jsonify({"error": str(e)}), 500
 
 
+# Turn one failed-applications CSV row into the entry dict the history view consumes,
+# or None when the row is only the writer's placeholder defaults (Unknown / Unknown /
+# Not applied / stopped with no links) and so is not a real record. The placeholders are
+# normalized into the same missing-value vocabulary the CSV writer uses, so the UI no
+# longer prints a wall of synthetic Unknown - Unknown - Not applied / stopped lines.
+def _normalize_failed_row(row: dict) -> dict | None:
+    company = (row.get("Company") or "").strip()
+    title = (row.get("Title") or "").strip()
+    status = (row.get("Status") or "").strip()
+    hr_name = (row.get("HR Name") or "").strip()
+    hr_link = (row.get("HR Link") or "").strip()
+    job_link = (row.get("Job Link") or "").strip()
+    external_link = (row.get("External Job link") or "").strip()
+
+    company = "Unknown" if company == "" else company
+    title = "Unknown" if title == "" else title
+    status = "Not applied / stopped" if status == "" else status
+    hr_name = "Unknown" if hr_name == "" else hr_name
+    hr_link = "" if hr_link in ("", "Unknown") else hr_link
+    job_link = "" if job_link in ("", "Unknown") else job_link
+    external_link = "" if external_link in ("", "Unknown") else external_link
+    placeholder_only = (
+        company == "Unknown"
+        and title == "Unknown"
+        and status == "Not applied / stopped"
+        and hr_name == "Unknown"
+        and not hr_link
+        and not job_link
+        and not external_link
+    )
+    if placeholder_only:
+        return None
+    return {
+        "Job_ID": row.get("Job ID", ""),
+        "Company": company,
+        "Title": title,
+        "Status": status,
+        "Assumed_Reason": row.get("Assumed Reason", ""),
+        "HR_Name": hr_name,
+        "HR_Link": hr_link,
+        "Job_Link": job_link,
+        "External_Job_link": external_link,
+        "Date_Tried": row.get("Date Tried", ""),
+    }
+
+
 @app.route("/failed-jobs", methods=["GET"])
 def get_failed_jobs():
     """Return failed / stopped-in-the-middle records from the bot's failed log CSV.
@@ -388,51 +434,10 @@ def get_failed_jobs():
 
         entries = []
         for row in rows:
-            company = (row.get("Company") or "").strip()
-            title = (row.get("Title") or "").strip()
-            status = (row.get("Status") or "").strip()
-            hr_name = (row.get("HR Name") or "").strip()
-            hr_link = (row.get("HR Link") or "").strip()
-            job_link = (row.get("Job Link") or "").strip()
-            external_link = (row.get("External Job link") or "").strip()
-
-            # Normalize the row's placeholder markers into the same missing-value
-            # vocabulary the CSV writer uses, so the UI no longer prints a wall of
-            # synthetic Unknown — Unknown — Not applied / stopped lines.
-            company = "Unknown" if company == "" else company
-            title = "Unknown" if title == "" else title
-            status = "Not applied / stopped" if status == "" else status
-            hr_name = "Unknown" if hr_name == "" else hr_name
-            hr_link = "" if hr_link in ("", "Unknown") else hr_link
-            job_link = "" if job_link in ("", "Unknown") else job_link
-            external_link = "" if external_link in ("", "Unknown") else external_link
-
-            placeholder_only = (
-                company == "Unknown"
-                and title == "Unknown"
-                and status == "Not applied / stopped"
-                and hr_name == "Unknown"
-                and not hr_link
-                and not job_link
-                and not external_link
-            )
-            if placeholder_only:
+            entry = _normalize_failed_row(row)
+            if entry is None:
                 continue
-
-            entries.append(
-                {
-                    "Job_ID": row.get("Job ID", ""),
-                    "Company": company,
-                    "Title": title,
-                    "Status": status,
-                    "Assumed_Reason": row.get("Assumed Reason", ""),
-                    "HR_Name": hr_name,
-                    "HR_Link": hr_link,
-                    "Job_Link": job_link,
-                    "External_Job_link": external_link,
-                    "Date_Tried": row.get("Date Tried", ""),
-                }
-            )
+            entries.append(entry)
         return jsonify(entries)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
